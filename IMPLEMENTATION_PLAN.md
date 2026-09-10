@@ -6,8 +6,8 @@ Milestone A-C và toàn bộ lát cắt MVP đã được triển khai. Phase 4 
 các PR độc lập để giữ khả năng rollback và review rõ ràng:
 
 - PostgreSQL-safe queue claiming: hoàn thành.
-- GitHub Checks với annotations theo file/dòng: đang triển khai.
-- Organization/RBAC và production authorization: kế tiếp.
+- GitHub Checks với annotations theo file/dòng: hoàn thành.
+- Organization-aware repository RBAC và production authorization: đang triển khai.
 - Usage limits và metrics bền vững: sau authorization.
 
 Thứ tự MVP ban đầu đã ưu tiên một lát cắt end-to-end:
