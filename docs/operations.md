@@ -50,6 +50,10 @@ cannot be recovered; replace them through the dashboard.
 
 - `GitHub` authentication failures: verify App ID, private key, installation status, and app
   repository permissions.
+- `GitHub Checks` failures: verify the App has `Checks: write`, the installation accepted the
+  updated permission, and `GITHUB_CHECKS_ENABLED=true`. Delivery failures retain only a stable
+  exception class in `github_check_deliveries`; the completed review and Discord delivery remain
+  available.
 - `OpenAI` failures: verify model access, API key, configured limits, and provider status.
 - `Discord` failures: `401/403/404` normally mean the write-only webhook must be replaced;
   `429/5xx` are retried automatically.

@@ -3,14 +3,16 @@ from typing import Any
 
 import pytest
 
+from app.github.client import PublishedCheck
 from app.github.schemas import GitHubFile, PullRequestData
 from app.models.base import FakeModelProvider
 from app.notifications.discord import DiscordReview
-from app.review.schemas import FindingSchema, ModelReviewOutput, Severity
+from app.review.schemas import FindingSchema, ModelReviewOutput, ReviewResult, Severity
 from app.security import SecretCipher
 from app.storage.database import create_engine, make_session_factory, session_scope
 from app.storage.models import (
     Base,
+    GitHubCheckDelivery,
     GitHubInstallation,
     NotificationDelivery,
     Repository,
@@ -21,8 +23,10 @@ from app.worker import ReviewProcessor
 
 
 class FakeGitHub:
-    def __init__(self, head_sha: str = "head") -> None:
+    def __init__(self, head_sha: str = "head", *, fail_check: bool = False) -> None:
         self.head_sha = head_sha
+        self.fail_check = fail_check
+        self.checks: list[tuple[str, str, str, str, ReviewResult]] = []
 
     def get_pull(self, owner: str, name: str, pull_number: int) -> PullRequestData:
         del owner, name
@@ -46,6 +50,23 @@ class FakeGitHub:
     def get_head_sha(self, owner: str, name: str, pull_number: int) -> str:
         del owner, name, pull_number
         return self.head_sha
+
+    def publish_review_check(
+        self,
+        owner: str,
+        name: str,
+        head_sha: str,
+        details_url: str,
+        result: ReviewResult,
+    ) -> PublishedCheck:
+        if self.fail_check:
+            raise RuntimeError("check failed")
+        self.checks.append((owner, name, head_sha, details_url, result))
+        return PublishedCheck(
+            id=42,
+            url="https://github.com/octo/repo/runs/42",
+            conclusion="action_required",
+        )
 
 
 class FakeNotifier:
@@ -144,6 +165,62 @@ def test_worker_supersedes_stale_run_without_notification(worker_state: Any) -> 
         assert run is not None
         assert run.status == "superseded"
     assert notifier.sent == []
+
+
+def test_worker_publishes_and_records_github_check(worker_state: Any) -> None:
+    factory, cipher, run_id = worker_state
+    notifier = FakeNotifier()
+    github = FakeGitHub()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: github,
+        FakeModelProvider([model_output()]),
+        notifier,
+        cipher,
+        worker_id="worker-1",
+        github_checks_enabled=True,
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        delivery = session.query(GitHubCheckDelivery).one()
+        assert run is not None
+        assert run.status == "completed"
+        assert delivery.status == "sent"
+        assert delivery.github_check_run_id == 42
+        assert delivery.conclusion == "action_required"
+        assert delivery.details_url == "https://github.com/octo/repo/runs/42"
+    assert len(github.checks) == 1
+
+
+def test_github_check_failure_does_not_lose_review_or_discord_delivery(
+    worker_state: Any,
+) -> None:
+    factory, cipher, run_id = worker_state
+    notifier = FakeNotifier()
+    github = FakeGitHub(fail_check=True)
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: github,
+        FakeModelProvider([model_output()]),
+        notifier,
+        cipher,
+        worker_id="worker-1",
+        github_checks_enabled=True,
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        delivery = session.query(GitHubCheckDelivery).one()
+        assert run is not None
+        assert run.status == "completed"
+        assert delivery.status == "failed"
+        assert delivery.last_error == "RuntimeError"
+    assert len(notifier.sent) == 1
 
 
 def test_two_repositories_use_different_discord_webhooks(tmp_path: Path) -> None:

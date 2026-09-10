@@ -31,11 +31,16 @@ and OpenAI variables documented in `.env.example`.
 
 ## GitHub configuration
 
-Create a GitHub App with these read permissions:
+Create a GitHub App with these repository permissions:
 
-- Contents
-- Pull requests
-- Metadata
+- Contents: read
+- Pull requests: read
+- Metadata: read
+
+To publish review results in the PR Checks tab, also grant `Checks: write` and set
+`GITHUB_CHECKS_ENABLED=true`. This is opt-in so existing installations without the extra
+permission continue to work. Reviews with high or critical findings conclude with
+`action_required`; lower-severity findings are `neutral`, and an empty review is `success`.
 
 Subscribe to `pull_request`, `installation`, and `installation_repositories`. Configure:
 
@@ -107,6 +112,8 @@ Production deployments can use `postgresql+psycopg://...`; PostgreSQL workers cl
 - `/healthz` reports API process health.
 - `/readyz` verifies the database is reachable.
 - `/metrics` exposes process-local Prometheus text metrics.
+- GitHub Check publication is recorded separately from the review run. A Checks API failure
+  does not discard the review result or prevent its Discord delivery.
 - SQLite uses WAL and a five-second busy timeout. Keep the database on a local persistent
   volume, not a network filesystem.
 - Review jobs use renewable leases. A crashed worker's job becomes eligible after the lease

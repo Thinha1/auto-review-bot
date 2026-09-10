@@ -2,10 +2,15 @@
 
 ## 1. Hiện trạng
 
-Repository hiện chỉ có tài liệu thiết kế [`pr-review-agent-design.md`](./pr-review-agent-design.md),
-chưa có source code và chưa được khởi tạo Git.
+Milestone A-C và toàn bộ lát cắt MVP đã được triển khai. Phase 4 (Production) đang thực hiện theo
+các PR độc lập để giữ khả năng rollback và review rõ ràng:
 
-Thiết kế hiện tại khả thi cho MVP. Thứ tự triển khai nên ưu tiên một lát cắt end-to-end:
+- PostgreSQL-safe queue claiming: hoàn thành.
+- GitHub Checks với annotations theo file/dòng: đang triển khai.
+- Organization/RBAC và production authorization: kế tiếp.
+- Usage limits và metrics bền vững: sau authorization.
+
+Thứ tự MVP ban đầu đã ưu tiên một lát cắt end-to-end:
 
 ```text
 fixture diff → review engine → database queue → GitHub webhook → Discord → dashboard
@@ -487,4 +492,3 @@ MVP hoàn thành khi:
 - [GitHub Pull Request API](https://docs.github.com/en/rest/pulls/pulls)
 - [Discord Webhook API](https://docs.discord.com/developers/resources/webhook)
 - [OpenAI Structured Outputs](https://platform.openai.com/docs/guides/structured-outputs)
-
