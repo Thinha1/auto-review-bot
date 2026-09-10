@@ -38,3 +38,31 @@ Health check:
 curl http://127.0.0.1:8000/healthz
 # {"status":"ok"}
 ```
+
+## Development
+
+| Task | Command |
+| --- | --- |
+| Install dependencies | `uv sync` |
+| Run API (dev) | `uv run uvicorn app.main:app --reload` |
+| Lint | `uv run ruff check .` |
+| Format | `uv run ruff format .` |
+| Type check | `uv run pyright` |
+| Run tests | `uv run pytest` |
+| Apply migrations | `uv run alembic upgrade head` |
+| New migration (autogenerate) | `uv run alembic revision --autogenerate -m "message"` |
+| Current revision | `uv run alembic current` |
+
+Migrations read `DATABASE_URL` (defaults to `sqlite:///./auto_review.db`).
+
+### Pre-commit
+
+```bash
+uvx pre-commit install         # install the git hook
+uvx pre-commit run --all-files # run all hooks once, now
+```
+
+### CI
+
+`.github/workflows/ci.yml` runs Ruff (format + lint), Pyright, an empty-database
+migration, and the test suite on every push and pull request.

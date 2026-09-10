@@ -1,0 +1,25 @@
+# Pre-commit hooks. Install with:  uvx pre-commit install
+# Run across all files:           uvx pre-commit run --all-files
+#
+# These local hooks reuse the project's own uv-managed tools so the versions
+# always match pyproject/uv.lock (no external repo pin to drift).
+
+ci:
+  autofix_commit_msg: "chore(ruff): auto-fix and format"
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-format
+        name: ruff format
+        entry: uv run ruff format
+        language: system
+        pass_filenames: false
+        stages: [commit]
+
+      - id: ruff-lint
+        name: ruff check
+        entry: uv run ruff check --fix
+        language: system
+        pass_filenames: false
+        stages: [commit]
