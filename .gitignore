@@ -20,11 +20,15 @@ venv/
 *.sqlite
 *.sqlite3
 *.db-journal
+*.db-wal
+*.db-shm
 *.sqlite3-*
 
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+.sandbox-tmp/
+.uv-cache/
 .pyright/
 .mypy_cache/
 .coverage

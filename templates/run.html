@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Review #{{ run.id }} · PR Review Agent{% endblock %}
+{% block content %}
+  <a class="back" href="/dashboard/repositories/{{ repository.id }}">← {{ repository.owner }}/{{ repository.name }}</a>
+  <div class="page-title">
+    <div>
+      <p class="eyebrow">REVIEW RUN {{ run.id }}</p>
+      <h1>Pull request #{{ run.pull_number }}</h1>
+      <p class="muted"><code>{{ run.head_sha }}</code></p>
+    </div>
+    <span class="pill {{ 'ok' if run.status == 'completed' }}">{{ run.status }}</span>
+  </div>
+  <section class="card summary-grid">
+    <div><span class="label">Risk</span><strong>{{ run.risk or '—' }}</strong></div>
+    <div><span class="label">Model</span><strong>{{ run.model or '—' }}</strong></div>
+    <div><span class="label">Tokens</span><strong>{{ (run.input_tokens or 0) + (run.output_tokens or 0) }}</strong></div>
+    <div><span class="label">Duration</span><strong>{{ run.duration_ms or 0 }} ms</strong></div>
+  </section>
+  <section class="card">
+    <h2>Summary{% if run.is_partial %} <span class="pill">partial</span>{% endif %}</h2>
+    <p>{{ run.summary or run.failure_code or 'No summary is available.' }}</p>
+    {% if run.is_partial %}<p class="muted">Skipped {{ run.skipped_files }} files and {{ run.skipped_lines }} diff lines.</p>{% endif %}
+  </section>
+  <section class="card">
+    <h2>Findings</h2>
+    <div class="findings">
+      {% for finding in run.findings %}
+        <article class="finding">
+          <div><span class="pill">{{ finding.severity }}</span> <code>{{ finding.file }}:{{ finding.line }}</code></div>
+          <h3>{{ finding.title }}</h3>
+          <p>{{ finding.explanation }}</p>
+          {% if finding.suggestion %}<p class="suggestion"><strong>Suggestion:</strong> {{ finding.suggestion }}</p>{% endif %}
+        </article>
+      {% else %}<p class="empty">No findings.</p>{% endfor %}
+    </div>
+  </section>
+{% endblock %}

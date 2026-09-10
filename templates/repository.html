@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ repository.owner }}/{{ repository.name }} · PR Review Agent{% endblock %}
+{% block content %}
+  <a class="back" href="/dashboard">← Repositories</a>
+  <div class="page-title">
+    <div><p class="eyebrow">REPOSITORY</p><h1>{{ repository.owner }}/{{ repository.name }}</h1></div>
+  </div>
+  <section class="card">
+    <h2>Review policy</h2>
+    <form method="post" class="settings-grid">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label class="checkbox"><input type="checkbox" name="enabled" {{ 'checked' if repository.enabled }}> Enable automatic reviews</label>
+      <label class="checkbox"><input type="checkbox" name="ignore_drafts" {{ 'checked' if config and config.ignore_drafts }}> Ignore draft pull requests</label>
+      <fieldset class="wide triggers">
+        <legend>Trigger events</legend>
+        {% for event in ['opened', 'reopened', 'synchronize', 'ready_for_review'] %}
+          <label class="checkbox"><input type="checkbox" name="trigger_{{ event }}" {{ 'checked' if config and event in config.trigger_events }}> {{ event }}</label>
+        {% endfor %}
+      </fieldset>
+      <label>Model<input name="model" value="{{ config.model if config else 'gpt-5-mini' }}" required></label>
+      <label>Minimum severity
+        <select name="minimum_severity">
+          {% for severity in ['low', 'medium', 'high', 'critical'] %}
+            <option value="{{ severity }}" {{ 'selected' if config and config.minimum_severity == severity }}>{{ severity }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <label>Maximum files<input type="number" name="max_files" min="1" max="3000" value="{{ config.max_files if config else 100 }}"></label>
+      <label>Maximum diff lines<input type="number" name="max_diff_lines" min="1" value="{{ config.max_diff_lines if config else 5000 }}"></label>
+      <label>Maximum findings<input type="number" name="max_findings" min="1" max="100" value="{{ config.max_findings if config else 20 }}"></label>
+      <label>Maximum input tokens<input type="number" name="max_input_tokens" min="1" value="{{ config.max_input_tokens if config else 50000 }}"></label>
+      <label class="wide">Discord webhook <span class="muted">({{ 'configured' if config and config.discord_webhook_encrypted else 'not configured' }})</span>
+        <input type="password" name="discord_webhook" autocomplete="new-password" placeholder="Leave blank to keep the current secret">
+      </label>
+      <label class="checkbox wide"><input type="checkbox" name="clear_discord_webhook"> Remove the configured Discord webhook</label>
+      <label class="wide">Ignored paths<textarea name="ignored_paths" rows="5">{{ (config.ignored_paths | join('\n')) if config else '' }}</textarea></label>
+      <label class="wide">Custom instructions<textarea name="custom_instructions" rows="6">{{ config.custom_instructions or '' if config else '' }}</textarea></label>
+      <div class="wide"><button type="submit">Save settings</button></div>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>Review runs</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>PR</th><th>SHA</th><th>Status</th><th>Risk</th><th>Tokens</th><th>Actions</th></tr></thead>
+        <tbody>
+          {% for run in runs %}
+            <tr>
+              <td><a href="/dashboard/runs/{{ run.id }}">#{{ run.pull_number }}</a></td><td><code>{{ run.head_sha[:8] }}</code></td>
+              <td><span class="pill {{ 'ok' if run.status == 'completed' }}">{{ run.status }}</span>{% if run.is_partial %} · partial{% endif %}</td>
+              <td>{{ run.risk or '—' }}</td><td>{{ (run.input_tokens or 0) + (run.output_tokens or 0) }}</td>
+              <td class="actions">
+                {% if run.status == 'failed' %}<form method="post" action="/dashboard/runs/{{ run.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Retry</button></form>{% endif %}
+                {% if run.status == 'completed' %}<form method="post" action="/dashboard/runs/{{ run.id }}/resend"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Resend</button></form>{% endif %}
+              </td>
+            </tr>
+          {% else %}<tr><td colspan="6" class="empty">No review runs yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

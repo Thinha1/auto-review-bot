@@ -26,6 +26,26 @@ Then fill in the required secrets in `.env` (never commit `.env`):
 - `GITHUB_WEBHOOK_SECRET` — shared secret for verifying `X-Hub-Signature-256`.
 - `MASTER_KEY` — key used to encrypt stored Discord webhook URLs (32+ random bytes).
 
+For the complete GitHub-to-Discord flow, also configure the GitHub App, GitHub OAuth,
+and OpenAI variables documented in `.env.example`.
+
+## GitHub configuration
+
+Create a GitHub App with these read permissions:
+
+- Contents
+- Pull requests
+- Metadata
+
+Subscribe to `pull_request`, `installation`, and `installation_repositories`. Configure:
+
+- Webhook URL: `https://YOUR_HOST/api/webhooks/github`
+- Callback URL: `https://YOUR_HOST/auth/github/callback`
+- Webhook secret: the same value as `GITHUB_WEBHOOK_SECRET`
+
+The dashboard uses GitHub OAuth and checks repository `permissions.admin` before showing
+or changing repository settings.
+
 ## Run the API
 
 ```bash
@@ -39,12 +59,36 @@ curl http://127.0.0.1:8000/healthz
 # {"status":"ok"}
 ```
 
+Apply migrations and run the worker in a separate process:
+
+```bash
+uv run alembic upgrade head
+uv run python -m app.worker
+```
+
+Open `http://127.0.0.1:8000/dashboard` to sign in and configure repositories.
+
+## Review a local fixture
+
+Use a real model:
+
+```bash
+uv run python -m app.cli tests/fixtures/sample.diff --model gpt-5-mini
+```
+
+For an offline deterministic run, supply a file containing a valid model-output JSON:
+
+```bash
+uv run python -m app.cli tests/fixtures/sample.diff --fake-output review-output.json
+```
+
 ## Development
 
 | Task | Command |
 | --- | --- |
 | Install dependencies | `uv sync` |
 | Run API (dev) | `uv run uvicorn app.main:app --reload` |
+| Run worker | `uv run python -m app.worker` |
 | Lint | `uv run ruff check .` |
 | Format | `uv run ruff format .` |
 | Type check | `uv run pyright` |
@@ -54,6 +98,26 @@ curl http://127.0.0.1:8000/healthz
 | Current revision | `uv run alembic current` |
 
 Migrations read `DATABASE_URL` (defaults to `sqlite:///./auto_review.db`).
+
+## Operations
+
+- `/healthz` reports API process health.
+- `/readyz` verifies the database is reachable.
+- `/metrics` exposes process-local Prometheus text metrics.
+- SQLite uses WAL and a five-second busy timeout. Keep the database on a local persistent
+  volume, not a network filesystem.
+- Review jobs use renewable leases. A crashed worker's job becomes eligible after the lease
+  expires; model and notification errors never persist raw exception text.
+- See [operations.md](./docs/operations.md) for migrations, key rotation, and stuck-job
+  recovery.
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+The Compose stack shares `/data/auto_review.db` between API, migration, and worker services.
 
 ### Pre-commit
 

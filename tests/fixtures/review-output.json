@@ -1,0 +1,15 @@
+{
+  "summary": "Authentication behavior changed.",
+  "risk": "high",
+  "findings": [
+    {
+      "severity": "high",
+      "file": "app/auth.py",
+      "line": 11,
+      "title": "Session created before validating token claims",
+      "explanation": "The new session is created from an unvalidated token payload.",
+      "suggestion": "Validate expiry and issuer claims before creating the session.",
+      "confidence": 0.93
+    }
+  ]
+}

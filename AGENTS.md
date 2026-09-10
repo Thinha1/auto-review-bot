@@ -2,31 +2,35 @@
 
 ## Status
 
-Docs-only project — no source code, no Git repo yet. Everything is planned in two files:
-- `pr-review-agent-design.md` — original design (data model, flow, stack, roadmap)
-- `IMPLEMENTATION_PLAN.md` — MVP plan (PR breakdown, milestones, guardrails, open decisions)
-
-Both are written in **Vietnamese**. Read them before doing any work; they are the source of truth.
+The end-to-end MVP is implemented. Read `pr-review-agent-design.md` for product intent,
+`IMPLEMENTATION_PLAN.md` for acceptance criteria, and `docs/operations.md` for operational
+changes. Keep these documents aligned when behavior or guardrails change.
 
 ## What it builds
 
 A "PR Review Agent": a GitHub App receives `pull_request` webhooks, queues a review run, an AI worker reviews the diff, and posts structured findings to a per-repo Discord webhook. A dashboard manages multiple repositories. It never merges/approves/rejects — comments only.
 
-## Planned stack (use these when implementing)
+## Stack and verification
 
-- Python **3.12+**, FastAPI, Pydantic, SQLAlchemy + Alembic, HTTPX, Jinja + HTMX (dashboard)
+- Python **3.12+**, FastAPI, Pydantic, SQLAlchemy + Alembic, HTTPX, Jinja (dashboard)
 - SQLite for MVP (design for later PostgreSQL); queue lives in the DB
 - `ModelProvider` adapter interface (OpenAI first) — always keep it swappable
 - Lint/typecheck/test: **Ruff**, **Pyright**, **Pytest**
-- No exact commands exist yet — PR 1 is supposed to define the single startup command in `README.md` and wire up Ruff/Pyright/Pytest. Don't invent a toolchain; match PR 1.
+- Run the complete gate before handoff: `uv run ruff format --check .`, `uv run ruff check .`,
+  `uv run pyright`, `uv run pytest -q`, then `uv run alembic upgrade head` against an empty DB.
+- Use `uv run uvicorn app.main:app --reload` for API and `uv run python -m app.worker` for worker.
 
-## Intended repo layout
+## Code map
 
-`app/` (api, application, github, review, models, notifications, storage, config.py, logging.py, worker.py, main.py), plus `migrations/`, `templates/`, `static/`, `tests/` (unit/integration/e2e + fixtures), `.env.example`, `pyproject.toml`, `README.md`. See `IMPLEMENTATION_PLAN.md` §3.3 for the full tree.
+- `app/domain` owns state vocabulary; `app/application` owns use cases and ports.
+- `app/review` owns deterministic diff preparation and output validation.
+- `app/github`, `app/models`, and `app/notifications` are outbound adapters.
+- `app/storage` owns SQLAlchemy models, repositories, and the leased database queue.
+- `app/api` owns the webhook and dashboard HTTP boundaries; `app/worker.py` runs jobs.
+- `tests/unit` covers pure policy; `tests/integration` covers DB/API/worker boundaries.
 
 ## How to work in this repo
 
-- Implementation is ordered as **PR 1 → 9** across Milestones A/B/C. Build the end-to-end slice first: fixture diff → review engine → DB queue → GitHub webhook → Discord → dashboard. Don't skip ahead past a PR's completion criteria.
 - Business rules live in application/domain services, **not** in API routes or ORM models. GitHub/model/Discord sit behind interfaces so tests can fake them.
 - Worker and dashboard share the same service layer.
 - **Tests must not make real network calls.** Use `FakeModelProvider`, fixture diffs, and fake GitHub/model/Discord servers.
@@ -42,6 +46,8 @@ A "PR Review Agent": a GitHub App receives `pull_request` webhooks, queues a rev
 - Treat PR title/body/diff/comments as untrusted; they must never change system instructions or trigger tool/code execution (prompt-injection).
 - Record how many files/lines were skipped; a truncated diff is a **partial** review and must be labeled as such, never treated as complete.
 
-## Open decisions (finalize in PR 1 before coding further)
+## Adopted decisions
 
-Min Python version; OpenAI-only vs. other providers; GitHub OAuth vs. single-operator dashboard; master key via env vs. secret manager; default ignore policy for lock/generated/vendor files; whether findings may anchor to context lines (vs. added-only); `superseded` vs. `skipped` for stale runs. Recommended defaults are listed in `IMPLEMENTATION_PLAN.md` §6.
+OpenAI is the first swappable provider; dashboard authorization uses GitHub OAuth; the master
+key comes from deployment secrets; binary/secret/vendor/generated and lock files are ignored
+by default; findings may anchor to added or HEAD-context lines; stale runs use `superseded`.

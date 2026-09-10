@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}Repositories · PR Review Agent{% endblock %}
+{% block content %}
+  <div class="page-title">
+    <div>
+      <p class="eyebrow">OPERATIONS</p>
+      <h1>Repositories</h1>
+      <p class="muted">Connected repositories you can administer.</p>
+    </div>
+  </div>
+  <section class="card table-wrap">
+    <table>
+      <thead><tr><th>Repository</th><th>Auto review</th><th>Model</th><th>Last run</th></tr></thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td><a href="/dashboard/repositories/{{ row.repository.id }}">{{ row.repository.owner }}/{{ row.repository.name }}</a></td>
+            <td><span class="pill {{ 'ok' if row.repository.enabled else '' }}">{{ 'Enabled' if row.repository.enabled else 'Disabled' }}</span></td>
+            <td>{{ row.config.model if row.config else '—' }}</td>
+            <td>{{ row.latest.status if row.latest else 'Never' }}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="4" class="empty">No administered repositories are connected.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </section>
+{% endblock %}
