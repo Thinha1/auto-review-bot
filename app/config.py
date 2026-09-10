@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     github_private_key: str | None = None
     github_client_id: str | None = None
     github_client_secret: str | None = None
+    github_app_slug: str | None = None
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     github_api_url: str = "https://api.github.com"

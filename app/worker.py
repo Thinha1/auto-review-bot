@@ -9,6 +9,7 @@ from threading import Event, Thread
 from time import monotonic, sleep
 from typing import Protocol
 
+import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import Settings, get_settings
@@ -17,7 +18,7 @@ from app.github.auth import GitHubAppAuth
 from app.github.client import GitHubClient
 from app.github.schemas import PullRequestData
 from app.metrics import metrics
-from app.models.base import ModelProvider
+from app.models.base import ModelOutputError, ModelProvider
 from app.models.openai import OpenAIModelProvider
 from app.notifications.discord import DiscordNotifier, DiscordReview
 from app.review.diff import parse_file_patch
@@ -31,6 +32,14 @@ from app.storage.models import Finding, NotificationDelivery, ReviewRun
 from app.storage.queue import ReviewQueue
 
 logger = logging.getLogger(__name__)
+
+
+def is_transient_failure(exc: Exception) -> bool:
+    if isinstance(exc, (httpx.TimeoutException, httpx.NetworkError, ModelOutputError)):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code == 429 or exc.response.status_code >= 500
+    return False
 
 
 class PullRequestClient(Protocol):
@@ -105,6 +114,7 @@ class RunContext:
     max_diff_lines: int
     max_findings: int
     max_input_tokens: int
+    max_model_calls: int
     discord_webhook_encrypted: str | None
 
 
@@ -158,7 +168,7 @@ class ReviewProcessor:
                     review_run_id,
                     self.worker_id,
                     failure_code=failure_code,
-                    max_attempts=self.max_attempts,
+                    max_attempts=self.max_attempts if is_transient_failure(exc) else 1,
                 )
             metrics.increment("pr_review_runs_failed_attempts_total")
         return True
@@ -193,6 +203,7 @@ class ReviewProcessor:
                 max_diff_lines=int(snapshot.get("max_diff_lines", config.max_diff_lines)),
                 max_findings=int(snapshot.get("max_findings", config.max_findings)),
                 max_input_tokens=int(snapshot.get("max_input_tokens", config.max_input_tokens)),
+                max_model_calls=int(snapshot.get("max_model_calls", config.max_model_calls)),
                 discord_webhook_encrypted=config.discord_webhook_encrypted,
             )
 
@@ -212,6 +223,7 @@ class ReviewProcessor:
             max_files=context.max_files,
             max_diff_lines=context.max_diff_lines,
             max_input_tokens=context.max_input_tokens,
+            max_model_calls=context.max_model_calls,
         )
         unavailable = [file for file in pull.files if file.patch is None]
         if unavailable:

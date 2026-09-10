@@ -40,25 +40,31 @@ def is_ignored_path(
     return any(fnmatch(normalized, pattern) for pattern in candidates)
 
 
-def _render_file(file: DiffFile, remaining_lines: int) -> tuple[str, set[tuple[str, int]], int]:
-    rendered = [f"FILE: {file.path} ({file.status})"]
-    locations: set[tuple[str, int]] = set()
+def _render_file(
+    file: DiffFile, remaining_lines: int
+) -> tuple[list[tuple[str, tuple[str, int] | None]], int]:
+    rendered: list[tuple[str, tuple[str, int] | None]] = [
+        (f"FILE: {file.path} ({file.status})", None)
+    ]
     used = 0
     for hunk in file.hunks:
         if used >= remaining_lines:
             break
-        rendered.append(hunk.header)
+        rendered.append((hunk.header, None))
         for line in hunk.lines:
             if used >= remaining_lines:
                 break
             marker = {"added": "+", "removed": "-", "context": " "}[line.kind]
             old = "" if line.old_line is None else str(line.old_line)
             new = "" if line.new_line is None else str(line.new_line)
-            rendered.append(f"{old:>6} {new:>6} {marker}{line.content}")
-            if line.new_line is not None and line.kind in {"added", "context"}:
-                locations.add((file.path, line.new_line))
+            location = (
+                (file.path, line.new_line)
+                if line.new_line is not None and line.kind in {"added", "context"}
+                else None
+            )
+            rendered.append((f"{old:>6} {new:>6} {marker}{line.content}", location))
             used += 1
-    return "\n".join(rendered), locations, used
+    return rendered, used
 
 
 def prepare_diff(
@@ -68,6 +74,7 @@ def prepare_diff(
     max_files: int = 100,
     max_diff_lines: int = 5000,
     max_input_tokens: int = 50_000,
+    max_model_calls: int = 20,
     include_lock_files: bool = False,
 ) -> PreparedDiff:
     """Filter and chunk files while preserving valid HEAD line locations."""
@@ -98,7 +105,7 @@ def prepare_diff(
                 candidate.reviewable_line_count for candidate in candidates[index:]
             )
             break
-        text, locations, used = _render_file(file, line_budget)
+        rendered_lines, used = _render_file(file, line_budget)
         if used == 0:
             continue
         if used < sum(len(hunk.lines) for hunk in file.hunks):
@@ -107,29 +114,31 @@ def prepare_diff(
 
         # Very large files are split by rendered lines. Each chunk remains independently
         # attributable because every line includes its old/new line number.
-        text_lines = text.splitlines()
-        current: list[str] = []
+        current: list[tuple[str, tuple[str, int] | None]] = []
         current_size = 0
-        for rendered_line in text_lines:
-            size = len(rendered_line) + 1
+        file_header = rendered_lines[0]
+        for rendered_line in rendered_lines:
+            size = len(rendered_line[0]) + 1
             if current and current_size + size > char_budget:
-                chunk_text = "\n".join(current)
-                chunk_locations = frozenset(
-                    location for location in locations if f"{location[1]:>6}" in chunk_text
-                )
+                chunk_text = "\n".join(item[0] for item in current)
+                chunk_locations = frozenset(item[1] for item in current if item[1] is not None)
                 result.chunks.append(ReviewChunk(chunk_text, chunk_locations))
-                current = [text_lines[0], rendered_line]
-                current_size = len(text_lines[0]) + size + 1
+                current = [file_header, rendered_line]
+                current_size = len(file_header[0]) + size + 1
             else:
                 current.append(rendered_line)
                 current_size += size
         if current:
-            chunk_text = "\n".join(current)
-            chunk_locations = frozenset(
-                location for location in locations if f"{location[1]:>6}" in chunk_text
-            )
+            chunk_text = "\n".join(item[0] for item in current)
+            chunk_locations = frozenset(item[1] for item in current if item[1] is not None)
             result.chunks.append(ReviewChunk(chunk_text, chunk_locations))
-        result.valid_locations.update(locations)
+
+    if len(result.chunks) > max_model_calls:
+        omitted_chunks = result.chunks[max_model_calls:]
+        result.skipped_lines += len(set().union(*(chunk.locations for chunk in omitted_chunks)))
+        result.chunks = result.chunks[:max_model_calls]
+
+    result.valid_locations = {location for chunk in result.chunks for location in chunk.locations}
 
     result.is_partial = result.skipped_files > 0 or result.skipped_lines > 0
     return result

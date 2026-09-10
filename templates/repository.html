@@ -29,6 +29,7 @@
       <label>Maximum diff lines<input type="number" name="max_diff_lines" min="1" value="{{ config.max_diff_lines if config else 5000 }}"></label>
       <label>Maximum findings<input type="number" name="max_findings" min="1" max="100" value="{{ config.max_findings if config else 20 }}"></label>
       <label>Maximum input tokens<input type="number" name="max_input_tokens" min="1" value="{{ config.max_input_tokens if config else 50000 }}"></label>
+      <label>Maximum model calls<input type="number" name="max_model_calls" min="1" max="100" value="{{ config.max_model_calls if config else 20 }}"></label>
       <label class="wide">Discord webhook <span class="muted">({{ 'configured' if config and config.discord_webhook_encrypted else 'not configured' }})</span>
         <input type="password" name="discord_webhook" autocomplete="new-password" placeholder="Leave blank to keep the current secret">
       </label>

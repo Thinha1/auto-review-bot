@@ -4,8 +4,9 @@ import json
 from typing import Any
 
 import httpx
+from pydantic import ValidationError
 
-from app.models.base import ModelRequest, ModelResponse
+from app.models.base import ModelOutputError, ModelRequest, ModelResponse
 from app.review.schemas import ModelReviewOutput
 
 
@@ -41,14 +42,19 @@ class OpenAIModelProvider:
             },
         )
         response.raise_for_status()
-        payload = response.json()
-        output_text = _extract_output_text(payload)
-        output = ModelReviewOutput.model_validate(json.loads(output_text))
-        usage = payload.get("usage") or {}
+        try:
+            payload = response.json()
+            output_text = _extract_output_text(payload)
+            output = ModelReviewOutput.model_validate(json.loads(output_text))
+            usage = payload.get("usage") or {}
+            input_tokens = int(usage.get("input_tokens", 0))
+            output_tokens = int(usage.get("output_tokens", 0))
+        except (json.JSONDecodeError, ValidationError, ValueError) as exc:
+            raise ModelOutputError("Model output failed schema validation") from exc
         return ModelResponse(
             output=output,
-            input_tokens=int(usage.get("input_tokens", 0)),
-            output_tokens=int(usage.get("output_tokens", 0)),
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
         )
 
 

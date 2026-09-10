@@ -92,6 +92,7 @@ class ReviewConfig(TimestampMixin, Base):
     max_diff_lines: Mapped[int] = mapped_column(Integer, default=5000, nullable=False)
     max_findings: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     max_input_tokens: Mapped[int] = mapped_column(Integer, default=50_000, nullable=False)
+    max_model_calls: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
 
     repository: Mapped[Repository] = relationship(back_populates="config")
 

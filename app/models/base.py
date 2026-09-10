@@ -6,6 +6,10 @@ from typing import Protocol
 from app.review.schemas import ModelReviewOutput
 
 
+class ModelOutputError(RuntimeError):
+    """The provider returned data that failed the configured output contract."""
+
+
 @dataclass(frozen=True, slots=True)
 class ModelRequest:
     system_prompt: str

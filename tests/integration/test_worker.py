@@ -144,3 +144,44 @@ def test_worker_supersedes_stale_run_without_notification(worker_state: Any) -> 
         assert run is not None
         assert run.status == "superseded"
     assert notifier.sent == []
+
+
+def test_two_repositories_use_different_discord_webhooks(tmp_path: Path) -> None:
+    engine = create_engine(f"sqlite:///{tmp_path / 'two-repositories.db'}")
+    Base.metadata.create_all(engine)
+    factory = make_session_factory(engine)
+    cipher = SecretCipher("m" * 32)
+    expected_webhooks = {
+        "https://discord.com/api/webhooks/101/token-one",
+        "https://discord.com/api/webhooks/202/token-two",
+    }
+    with session_scope(factory) as session:
+        for index, webhook in enumerate(sorted(expected_webhooks), start=1):
+            installation = GitHubInstallation(github_installation_id=1000 + index)
+            repository = Repository(
+                github_repository_id=2000 + index,
+                installation=installation,
+                owner="octo",
+                name=f"repo-{index}",
+            )
+            ReviewConfig(
+                repository=repository,
+                discord_webhook_encrypted=cipher.encrypt(webhook),
+            )
+            session.add(repository)
+            session.flush()
+            session.add(ReviewRun(repository=repository, pull_number=7, head_sha="head"))
+
+    notifier = FakeNotifier()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: FakeGitHub(),
+        FakeModelProvider([model_output(), model_output()]),
+        notifier,
+        cipher,
+        worker_id="worker-1",
+    )
+    assert processor.run_once()
+    assert processor.run_once()
+    assert {webhook for webhook, _review in notifier.sent} == expected_webhooks
+    engine.dispose()

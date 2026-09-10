@@ -1,8 +1,9 @@
 import json
 
 import httpx
+import pytest
 
-from app.models.base import ModelRequest
+from app.models.base import ModelOutputError, ModelRequest
 from app.models.openai import OpenAIModelProvider
 
 
@@ -27,3 +28,14 @@ def test_openai_provider_uses_strict_json_schema() -> None:
     assert result.output.summary == "OK"
     assert result.input_tokens == 10
     assert captured["text"]["format"]["strict"] is True  # type: ignore[index]
+
+
+def test_openai_provider_classifies_invalid_schema() -> None:
+    client = httpx.Client(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, json={"output_text": "not-json"})
+        )
+    )
+    provider = OpenAIModelProvider("test-key", client=client)
+    with pytest.raises(ModelOutputError):
+        provider.review(ModelRequest("system", "user", "gpt-test"))

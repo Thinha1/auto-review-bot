@@ -46,6 +46,7 @@ def test_notifier_retries_rate_limit() -> None:
     notifier = DiscordNotifier(
         client=httpx.Client(transport=httpx.MockTransport(handler)),
         sleep_fn=sleeps.append,
+        jitter_fn=lambda: 0,
     )
     ids = notifier.send("https://discord.com/api/webhooks/123/token", make_review())
     assert ids == ["message-1"]

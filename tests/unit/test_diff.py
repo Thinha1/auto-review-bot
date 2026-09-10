@@ -51,3 +51,16 @@ def test_prepare_diff_reports_truncation() -> None:
     assert prepared.skipped_files == 2
     assert prepared.skipped_lines == 2
     assert prepared.is_partial
+
+
+def test_prepare_diff_caps_model_calls_and_locations_per_chunk() -> None:
+    patch = "@@ -0,0 +1,40 @@\n" + "\n".join(f"+line {index} {'x' * 80}" for index in range(1, 41))
+    prepared = prepare_diff(
+        [parse_file_patch("src/large.py", patch)],
+        max_input_tokens=250,
+        max_model_calls=1,
+    )
+    assert len(prepared.chunks) == 1
+    assert prepared.valid_locations == set(prepared.chunks[0].locations)
+    assert prepared.skipped_lines > 0
+    assert prepared.is_partial

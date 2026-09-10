@@ -3,6 +3,7 @@
 from collections.abc import Callable
 from contextlib import suppress
 from dataclasses import dataclass
+from random import random
 from time import sleep
 from typing import Any
 
@@ -94,10 +95,12 @@ class DiscordNotifier:
         client: httpx.Client | None = None,
         max_attempts: int = 3,
         sleep_fn: Callable[[float], None] = sleep,
+        jitter_fn: Callable[[], float] = random,
     ) -> None:
         self._client = client or httpx.Client(timeout=20, follow_redirects=False)
         self._max_attempts = max_attempts
         self._sleep = sleep_fn
+        self._jitter = jitter_fn
 
     def send(self, webhook_url: str, review: DiscordReview) -> list[str]:
         validate_discord_webhook_url(webhook_url)
@@ -128,5 +131,5 @@ class DiscordNotifier:
                 if response is not None and response.status_code == 429:
                     with suppress(ValueError, TypeError):
                         retry_after = float(response.json().get("retry_after", retry_after))
-                self._sleep(min(retry_after, 30))
+                self._sleep(min(retry_after + self._jitter() * 0.25, 30))
         raise DiscordDeliveryError(last_error)

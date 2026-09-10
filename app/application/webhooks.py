@@ -183,5 +183,6 @@ class GitHubWebhookService:
             "max_diff_lines": config.max_diff_lines,
             "max_findings": config.max_findings,
             "max_input_tokens": config.max_input_tokens,
+            "max_model_calls": config.max_model_calls,
             "custom_instructions": config.custom_instructions,
         }

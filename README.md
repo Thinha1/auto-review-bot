@@ -42,6 +42,7 @@ Subscribe to `pull_request`, `installation`, and `installation_repositories`. Co
 - Webhook URL: `https://YOUR_HOST/api/webhooks/github`
 - Callback URL: `https://YOUR_HOST/auth/github/callback`
 - Webhook secret: the same value as `GITHUB_WEBHOOK_SECRET`
+- `GITHUB_APP_SLUG`: the app slug used by the dashboard's installation link
 
 The dashboard uses GitHub OAuth and checks repository `permissions.admin` before showing
 or changing repository settings.
@@ -110,6 +111,8 @@ Migrations read `DATABASE_URL` (defaults to `sqlite:///./auto_review.db`).
   expires; model and notification errors never persist raw exception text.
 - See [operations.md](./docs/operations.md) for migrations, key rotation, and stuck-job
   recovery.
+- See [mvp-acceptance.md](./docs/mvp-acceptance.md) for automated evidence and pre-release
+  checks.
 
 ## Docker
 

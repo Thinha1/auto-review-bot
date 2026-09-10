@@ -162,7 +162,11 @@ def dashboard(request: Request) -> Response:
         return templates.TemplateResponse(
             request,
             "repositories.html",
-            {"rows": rows, "user": dashboard_session.github_login},
+            {
+                "rows": rows,
+                "user": dashboard_session.github_login,
+                "github_app_slug": request.app.state.settings.github_app_slug,
+            },
         )
 
 
@@ -230,6 +234,7 @@ async def update_repository_settings(request: Request, repository_id: int) -> Re
             ("max_diff_lines", 5000, 100_000),
             ("max_findings", 20, 100),
             ("max_input_tokens", 50_000, 1_000_000),
+            ("max_model_calls", 20, 100),
         ):
             raw_value = form.get(field, default)
             if not isinstance(raw_value, (str, int)):

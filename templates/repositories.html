@@ -7,6 +7,7 @@
       <h1>Repositories</h1>
       <p class="muted">Connected repositories you can administer.</p>
     </div>
+    {% if github_app_slug %}<a class="button" href="https://github.com/apps/{{ github_app_slug }}/installations/new">Install GitHub App</a>{% endif %}
   </div>
   <section class="card table-wrap">
     <table>
