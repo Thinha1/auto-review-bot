@@ -9,6 +9,21 @@ from app.domain.states import ReviewRunStatus
 from app.storage.models import ReviewRun
 
 
+def claim_candidate_statement(now: datetime, *, skip_locked: bool = False):
+    statement = (
+        select(ReviewRun)
+        .where(
+            ReviewRun.status == ReviewRunStatus.QUEUED.value,
+            or_(ReviewRun.next_attempt_at.is_(None), ReviewRun.next_attempt_at <= now),
+        )
+        .order_by(ReviewRun.created_at, ReviewRun.id)
+        .limit(1)
+    )
+    if skip_locked:
+        statement = statement.with_for_update(skip_locked=True)
+    return statement
+
+
 class ReviewQueue:
     def __init__(self, session: Session) -> None:
         self.session = session
@@ -41,15 +56,23 @@ class ReviewQueue:
     ) -> ReviewRun | None:
         now = now or datetime.now(UTC)
         self.reclaim_expired(now)
+        dialect = self.session.bind.dialect.name if self.session.bind is not None else ""
+        if dialect == "postgresql":
+            review_run = self.session.scalar(claim_candidate_statement(now, skip_locked=True))
+            if review_run is None:
+                return None
+            review_run.status = ReviewRunStatus.RUNNING.value
+            review_run.locked_at = now
+            review_run.locked_by = worker_id
+            review_run.lease_expires_at = now + timedelta(seconds=lease_seconds)
+            review_run.started_at = now
+            review_run.attempt_count += 1
+            self.session.flush()
+            return review_run
+
         for _ in range(5):
             review_run_id = self.session.scalar(
-                select(ReviewRun.id)
-                .where(
-                    ReviewRun.status == ReviewRunStatus.QUEUED.value,
-                    or_(ReviewRun.next_attempt_at.is_(None), ReviewRun.next_attempt_at <= now),
-                )
-                .order_by(ReviewRun.created_at, ReviewRun.id)
-                .limit(1)
+                claim_candidate_statement(now).with_only_columns(ReviewRun.id)
             )
             if review_run_id is None:
                 return None
