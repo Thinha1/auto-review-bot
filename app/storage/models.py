@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -115,6 +116,7 @@ class ReviewRun(TimestampMixin, Base):
         UniqueConstraint(
             "repository_id", "pull_number", "head_sha", name="uq_review_run_idempotency"
         ),
+        Index("ix_review_runs_queue_ready", "status", "next_attempt_at", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

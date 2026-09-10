@@ -11,6 +11,17 @@ uv run alembic upgrade head
 Start the API and worker only after the migration succeeds. Test rollback against a copy of
 production data before using `alembic downgrade` in production.
 
+### PostgreSQL
+
+Set `DATABASE_URL` to a `postgresql+psycopg://` URL before running migrations. PostgreSQL
+workers use row locks with `SKIP LOCKED`, so multiple replicas can claim separate jobs without
+serializing behind the oldest queued row. Keep `worker_lease_seconds` longer than a normal model
+call; the background heartbeat renews it while processing.
+
+Before increasing worker replicas, verify the database connection limit covers the API pool,
+each worker, migrations, and operational access with headroom. The CI PostgreSQL service applies
+all migrations and exercises two uncommitted concurrent claims on every pull request.
+
 ## Recovering stuck review jobs
 
 Workers renew `lease_expires_at` while processing. A new worker automatically moves an expired

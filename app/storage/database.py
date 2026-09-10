@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 
 def create_engine(url: str) -> Engine:
-    kwargs: dict[str, object] = {}
+    kwargs: dict[str, object] = {"pool_pre_ping": True}
     if url.startswith("sqlite"):
         kwargs["connect_args"] = {"check_same_thread": False}
     engine = sa_create_engine(url, **kwargs)

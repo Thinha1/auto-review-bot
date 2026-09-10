@@ -99,6 +99,8 @@ uv run python -m app.cli tests/fixtures/sample.diff --fake-output review-output.
 | Current revision | `uv run alembic current` |
 
 Migrations read `DATABASE_URL` (defaults to `sqlite:///./auto_review.db`).
+Production deployments can use `postgresql+psycopg://...`; PostgreSQL workers claim jobs with
+`FOR UPDATE SKIP LOCKED` so replicas do not block one another.
 
 ## Operations
 

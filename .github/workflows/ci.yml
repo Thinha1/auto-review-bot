@@ -41,3 +41,36 @@ jobs:
 
       - name: Tests
         run: uv run pytest -q
+
+  postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: review
+          POSTGRES_PASSWORD: review
+          POSTGRES_DB: review_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U review -d review_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://review:review@127.0.0.1:5432/review_test
+      TEST_POSTGRES_URL: postgresql+psycopg://review:review@127.0.0.1:5432/review_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync
+      - name: Migrate PostgreSQL
+        run: |
+          uv run alembic upgrade head
+          uv run alembic check
+      - name: Verify PostgreSQL queue concurrency
+        run: uv run pytest -q tests/integration/test_postgres_queue.py
