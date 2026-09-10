@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
     github_api_url: str = "https://api.github.com"
+    github_checks_enabled: bool = False
     session_secret: str | None = None
     public_base_url: str = "http://127.0.0.1:8000"
     worker_poll_seconds: float = 2.0

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.config import Settings, get_settings
 from app.domain.states import NotificationStatus, ReviewRunStatus
 from app.github.auth import GitHubAppAuth
-from app.github.client import GitHubClient
+from app.github.client import GitHubClient, PublishedCheck
 from app.github.schemas import PullRequestData
 from app.metrics import metrics
 from app.models.base import ModelOutputError, ModelProvider
@@ -28,7 +28,7 @@ from app.review.prompts import PROMPT_VERSION
 from app.review.schemas import ReviewResult, Severity
 from app.security import SecretCipher
 from app.storage.database import create_engine, make_session_factory, session_scope
-from app.storage.models import Finding, NotificationDelivery, ReviewRun
+from app.storage.models import Finding, GitHubCheckDelivery, NotificationDelivery, ReviewRun
 from app.storage.queue import ReviewQueue
 
 logger = logging.getLogger(__name__)
@@ -46,6 +46,15 @@ class PullRequestClient(Protocol):
     def get_pull(self, owner: str, name: str, pull_number: int) -> PullRequestData: ...
 
     def get_head_sha(self, owner: str, name: str, pull_number: int) -> str: ...
+
+    def publish_review_check(
+        self,
+        owner: str,
+        name: str,
+        head_sha: str,
+        details_url: str,
+        result: ReviewResult,
+    ) -> PublishedCheck: ...
 
 
 class NotificationSender(Protocol):
@@ -131,6 +140,7 @@ class ReviewProcessor:
         lease_seconds: int = 300,
         max_attempts: int = 3,
         poll_seconds: float = 2,
+        github_checks_enabled: bool = False,
     ) -> None:
         self.session_factory = session_factory
         self.github_factory = github_factory
@@ -141,6 +151,7 @@ class ReviewProcessor:
         self.lease_seconds = lease_seconds
         self.max_attempts = max_attempts
         self.poll_seconds = poll_seconds
+        self.github_checks_enabled = github_checks_enabled
 
     def run_once(self) -> bool:
         with session_scope(self.session_factory) as session:
@@ -246,12 +257,20 @@ class ReviewProcessor:
             self._mark_superseded(review_run_id)
             return
 
-        notification_id = self._save_result(
+        notification_id, check_delivery_id = self._save_result(
             review_run_id, result, duration_ms=int((monotonic() - started) * 1000)
         )
         metrics.increment("pr_review_runs_completed_total")
         metrics.increment("pr_review_model_input_tokens_total", result.input_tokens)
         metrics.increment("pr_review_model_output_tokens_total", result.output_tokens)
+        if check_delivery_id is not None:
+            self._publish_github_check(
+                check_delivery_id,
+                github,
+                context,
+                pull.url,
+                result,
+            )
         if notification_id is not None and context.discord_webhook_encrypted is not None:
             self._send_notification(
                 notification_id,
@@ -268,7 +287,7 @@ class ReviewProcessor:
 
     def _save_result(
         self, review_run_id: int, result: ReviewResult, *, duration_ms: int
-    ) -> int | None:
+    ) -> tuple[int | None, int | None]:
         with session_scope(self.session_factory) as session:
             run = ReviewQueue(session)._locked_run(review_run_id, self.worker_id)
             run.summary = result.summary
@@ -298,12 +317,19 @@ class ReviewProcessor:
             run.locked_at = None
             run.locked_by = None
             run.lease_expires_at = None
+            notification_delivery = None
+            check_delivery = None
             if run.repository.config and run.repository.config.discord_webhook_encrypted:
-                delivery = NotificationDelivery(review_run=run)
-                session.add(delivery)
-                session.flush()
-                return delivery.id
-            return None
+                notification_delivery = NotificationDelivery(review_run=run)
+                session.add(notification_delivery)
+            if self.github_checks_enabled:
+                check_delivery = GitHubCheckDelivery(review_run=run)
+                session.add(check_delivery)
+            session.flush()
+            return (
+                notification_delivery.id if notification_delivery is not None else None,
+                check_delivery.id if check_delivery is not None else None,
+            )
 
     def _mark_superseded(self, review_run_id: int) -> None:
         with session_scope(self.session_factory) as session:
@@ -341,6 +367,47 @@ class ReviewProcessor:
                 delivery.review_run.notified_at = delivery.sent_at
         metrics.increment("pr_review_discord_deliveries_total")
 
+    def _publish_github_check(
+        self,
+        delivery_id: int,
+        github: PullRequestClient,
+        context: RunContext,
+        details_url: str,
+        result: ReviewResult,
+    ) -> None:
+        try:
+            published = github.publish_review_check(
+                context.owner,
+                context.name,
+                context.head_sha,
+                details_url,
+                result,
+            )
+        except Exception as exc:
+            error_type = type(exc).__name__
+            logger.error(
+                "GitHub check publication failed",
+                extra={"review_run_id": context.id, "error_type": error_type},
+            )
+            with session_scope(self.session_factory) as session:
+                delivery = session.get(GitHubCheckDelivery, delivery_id)
+                if delivery is not None:
+                    delivery.status = NotificationStatus.FAILED.value
+                    delivery.attempts += 1
+                    delivery.last_error = error_type
+            metrics.increment("pr_review_github_check_failures_total")
+            return
+        with session_scope(self.session_factory) as session:
+            delivery = session.get(GitHubCheckDelivery, delivery_id)
+            if delivery is not None:
+                delivery.github_check_run_id = published.id
+                delivery.status = NotificationStatus.SENT.value
+                delivery.conclusion = published.conclusion
+                delivery.details_url = published.url
+                delivery.attempts += 1
+                delivery.published_at = datetime.now(UTC)
+        metrics.increment("pr_review_github_checks_published_total")
+
 
 def build_processor(settings: Settings) -> tuple[ReviewProcessor, object]:
     required = {
@@ -373,6 +440,7 @@ def build_processor(settings: Settings) -> tuple[ReviewProcessor, object]:
         lease_seconds=settings.worker_lease_seconds,
         max_attempts=settings.worker_max_attempts,
         poll_seconds=settings.worker_poll_seconds,
+        github_checks_enabled=settings.github_checks_enabled,
     )
     return processor, engine
 

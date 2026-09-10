@@ -20,6 +20,13 @@
     <h2>Summary{% if run.is_partial %} <span class="pill">partial</span>{% endif %}</h2>
     <p>{{ run.summary or run.failure_code or 'No summary is available.' }}</p>
     {% if run.is_partial %}<p class="muted">Skipped {{ run.skipped_files }} files and {{ run.skipped_lines }} diff lines.</p>{% endif %}
+    {% if run.github_check_deliveries %}
+      {% set check = run.github_check_deliveries[-1] %}
+      <p class="muted">
+        GitHub Check: {{ check.status }}{% if check.conclusion %} · {{ check.conclusion }}{% endif %}
+        {% if check.details_url %} · <a href="{{ check.details_url }}">open check</a>{% endif %}
+      </p>
+    {% endif %}
   </section>
   <section class="card">
     <h2>Findings</h2>

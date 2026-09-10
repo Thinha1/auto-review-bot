@@ -160,6 +160,9 @@ class ReviewRun(TimestampMixin, Base):
     notification_deliveries: Mapped[list[NotificationDelivery]] = relationship(
         back_populates="review_run", cascade="all, delete-orphan"
     )
+    github_check_deliveries: Mapped[list[GitHubCheckDelivery]] = relationship(
+        back_populates="review_run", cascade="all, delete-orphan"
+    )
 
 
 class Finding(TimestampMixin, Base):
@@ -200,6 +203,26 @@ class NotificationDelivery(TimestampMixin, Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     review_run: Mapped[ReviewRun] = relationship(back_populates="notification_deliveries")
+
+
+class GitHubCheckDelivery(TimestampMixin, Base):
+    __tablename__ = "github_check_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    review_run_id: Mapped[int] = mapped_column(
+        ForeignKey("review_runs.id", ondelete="CASCADE"), index=True
+    )
+    github_check_run_id: Mapped[int | None] = mapped_column(BigInteger)
+    status: Mapped[str] = mapped_column(
+        String(20), default=NotificationStatus.PENDING.value, nullable=False
+    )
+    conclusion: Mapped[str | None] = mapped_column(String(30))
+    details_url: Mapped[str | None] = mapped_column(Text)
+    attempts: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(100))
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    review_run: Mapped[ReviewRun] = relationship(back_populates="github_check_deliveries")
 
 
 class DashboardSession(TimestampMixin, Base):
