@@ -4,7 +4,7 @@
   <a class="back" href="/dashboard/repositories/{{ repository.id }}">← {{ repository.owner }}/{{ repository.name }}</a>
   <div class="page-title">
     <div>
-      <p class="eyebrow">REVIEW RUN {{ run.id }}</p>
+      <p class="eyebrow">REVIEW RUN {{ run.id }} · {{ role.value }}</p>
       <h1>Pull request #{{ run.pull_number }}</h1>
       <p class="muted"><code>{{ run.head_sha }}</code></p>
     </div>

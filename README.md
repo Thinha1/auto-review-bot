@@ -49,8 +49,16 @@ Subscribe to `pull_request`, `installation`, and `installation_repositories`. Co
 - Webhook secret: the same value as `GITHUB_WEBHOOK_SECRET`
 - `GITHUB_APP_SLUG`: the app slug used by the dashboard's installation link
 
-The dashboard uses GitHub OAuth and checks repository `permissions.admin` before showing
-or changing repository settings.
+The dashboard uses GitHub OAuth and maps each repository's effective GitHub permissions to
+application roles. This works for personal repositories and organization access inherited from
+teams, base permissions, or organization ownership:
+
+- `viewer` (GitHub read/triage): view repository status and review history.
+- `maintainer` (GitHub write/maintain): viewer access plus retry and Discord resend operations.
+- `admin` (GitHub admin): maintainer access plus review-policy and secret configuration.
+
+Authorization is checked against GitHub on every dashboard request; webhook account metadata is
+never treated as proof of a user's organization role.
 
 ## Run the API
 

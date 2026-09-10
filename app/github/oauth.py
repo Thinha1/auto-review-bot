@@ -4,6 +4,8 @@ from urllib.parse import urlencode
 
 import httpx
 
+from app.authz import RepositoryRole, role_from_github_permissions
+
 
 class GitHubOAuthClient:
     def __init__(
@@ -55,13 +57,23 @@ class GitHubOAuthClient:
         response.raise_for_status()
         return str(response.json()["login"])
 
-    def is_repository_admin(self, access_token: str, owner: str, name: str) -> bool:
+    def repository_role(self, access_token: str, owner: str, name: str) -> RepositoryRole | None:
         response = self.client.get(
             f"{self.api_url}/repos/{owner}/{name}",
-            headers={"Authorization": f"Bearer {access_token}"},
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+            },
         )
         if response.status_code in {403, 404}:
-            return False
+            return None
         response.raise_for_status()
         permissions = response.json().get("permissions") or {}
-        return bool(permissions.get("admin"))
+        if not isinstance(permissions, dict):
+            return None
+        return role_from_github_permissions(permissions)
+
+    def is_repository_admin(self, access_token: str, owner: str, name: str) -> bool:
+        """Compatibility helper for callers that still require the highest role."""
+        return self.repository_role(access_token, owner, name) is RepositoryRole.ADMIN

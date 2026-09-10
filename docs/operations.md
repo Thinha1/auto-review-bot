@@ -46,6 +46,19 @@ The current MVP runtime accepts one active key, so rotation is an explicit maint
 Never print plaintext webhooks during rotation. If the old key is lost, stored webhook values
 cannot be recovered; replace them through the dashboard.
 
+## Dashboard authorization
+
+Dashboard access is repository-scoped and comes from the signed-in user's current effective
+GitHub permissions. Read/triage maps to `viewer`, write/maintain maps to `maintainer`, and admin
+maps to `admin`. Repository and organization permission changes take effect on the next request;
+the application does not persist a stale role assignment.
+
+Only admins can change review policy or the write-only Discord secret. Maintainers can retry
+failed reviews and resend completed Discord notifications. Viewers can inspect review history but
+cannot trigger cost-bearing or secret-bearing operations. A `403` after a GitHub role change is
+expected; a `404` from GitHub is treated as no access so private repository existence is not
+disclosed.
+
 ## Failure triage
 
 - `GitHub` authentication failures: verify App ID, private key, installation status, and app

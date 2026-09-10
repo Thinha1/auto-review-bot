@@ -3,10 +3,11 @@
 {% block content %}
   <a class="back" href="/dashboard">← Repositories</a>
   <div class="page-title">
-    <div><p class="eyebrow">REPOSITORY</p><h1>{{ repository.owner }}/{{ repository.name }}</h1></div>
+    <div><p class="eyebrow">REPOSITORY · {{ role.value }}</p><h1>{{ repository.owner }}/{{ repository.name }}</h1></div>
   </div>
   <section class="card">
     <h2>Review policy</h2>
+    {% if can_configure %}
     <form method="post" class="settings-grid">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <label class="checkbox"><input type="checkbox" name="enabled" {{ 'checked' if repository.enabled }}> Enable automatic reviews</label>
@@ -38,6 +39,15 @@
       <label class="wide">Custom instructions<textarea name="custom_instructions" rows="6">{{ config.custom_instructions or '' if config else '' }}</textarea></label>
       <div class="wide"><button type="submit">Save settings</button></div>
     </form>
+    {% else %}
+      <div class="summary-grid">
+        <div><span class="label">Auto review</span><strong>{{ 'Enabled' if repository.enabled else 'Disabled' }}</strong></div>
+        <div><span class="label">Model</span><strong>{{ config.model if config else '—' }}</strong></div>
+        <div><span class="label">Minimum severity</span><strong>{{ config.minimum_severity if config else '—' }}</strong></div>
+        <div><span class="label">Access</span><strong>Read only</strong></div>
+      </div>
+      <p class="muted">Repository admin access is required to change policy or secrets.</p>
+    {% endif %}
   </section>
 
   <section class="card">
@@ -52,8 +62,8 @@
               <td><span class="pill {{ 'ok' if run.status == 'completed' }}">{{ run.status }}</span>{% if run.is_partial %} · partial{% endif %}</td>
               <td>{{ run.risk or '—' }}</td><td>{{ (run.input_tokens or 0) + (run.output_tokens or 0) }}</td>
               <td class="actions">
-                {% if run.status == 'failed' %}<form method="post" action="/dashboard/runs/{{ run.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Retry</button></form>{% endif %}
-                {% if run.status == 'completed' %}<form method="post" action="/dashboard/runs/{{ run.id }}/resend"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Resend</button></form>{% endif %}
+                {% if can_operate and run.status == 'failed' %}<form method="post" action="/dashboard/runs/{{ run.id }}/retry"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Retry</button></form>{% endif %}
+                {% if can_operate and run.status == 'completed' %}<form method="post" action="/dashboard/runs/{{ run.id }}/resend"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="secondary">Resend</button></form>{% endif %}
               </td>
             </tr>
           {% else %}<tr><td colspan="6" class="empty">No review runs yet.</td></tr>{% endfor %}

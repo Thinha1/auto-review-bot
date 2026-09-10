@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import select
 
+from app.authz import RepositoryAction, RepositoryRole, role_allows
 from app.domain.states import ReviewRunStatus, validate_review_run_transition
 from app.github.oauth import GitHubOAuthClient
 from app.notifications.discord import DiscordNotifier, DiscordReview
@@ -70,15 +71,26 @@ def _require_csrf(request: Request, dashboard_session: DashboardSession, token: 
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Invalid CSRF token")
 
 
-def _require_admin(
+def _repository_role(
     request: Request, dashboard_session: DashboardSession, repository: Repository
-) -> str:
+) -> RepositoryRole | None:
     access_token = _cipher(request).decrypt(dashboard_session.access_token_encrypted)
-    if not _oauth_client(request).is_repository_admin(
-        access_token, repository.owner, repository.name
-    ):
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Repository admin access required")
-    return access_token
+    return _oauth_client(request).repository_role(access_token, repository.owner, repository.name)
+
+
+def _require_repository_action(
+    request: Request,
+    dashboard_session: DashboardSession,
+    repository: Repository,
+    action: RepositoryAction,
+) -> RepositoryRole:
+    role = _repository_role(request, dashboard_session, repository)
+    if role is None or not role_allows(role, action):
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            f"Repository {action.value} access required",
+        )
+    return role
 
 
 @router.get("/login/github")
@@ -137,28 +149,28 @@ def dashboard(request: Request) -> Response:
         if dashboard_session is None:
             return RedirectResponse("/login/github", status_code=status.HTTP_303_SEE_OTHER)
         access_token = _cipher(request).decrypt(dashboard_session.access_token_encrypted)
-        repositories = [
-            repository
-            for repository in database.scalars(
-                select(Repository).order_by(Repository.owner, Repository.name)
-            )
-            if _oauth_client(request).is_repository_admin(
+        rows = []
+        for repository in database.scalars(
+            select(Repository).order_by(Repository.owner, Repository.name)
+        ):
+            role = _oauth_client(request).repository_role(
                 access_token, repository.owner, repository.name
             )
-        ]
-        rows = [
-            {
-                "repository": repository,
-                "config": repository.config,
-                "latest": database.scalar(
-                    select(ReviewRun)
-                    .where(ReviewRun.repository_id == repository.id)
-                    .order_by(ReviewRun.created_at.desc())
-                    .limit(1)
-                ),
-            }
-            for repository in repositories
-        ]
+            if role is None:
+                continue
+            rows.append(
+                {
+                    "repository": repository,
+                    "config": repository.config,
+                    "role": role,
+                    "latest": database.scalar(
+                        select(ReviewRun)
+                        .where(ReviewRun.repository_id == repository.id)
+                        .order_by(ReviewRun.created_at.desc())
+                        .limit(1)
+                    ),
+                }
+            )
         return templates.TemplateResponse(
             request,
             "repositories.html",
@@ -179,7 +191,9 @@ def repository_settings(request: Request, repository_id: int) -> Response:
         repository = database.get(Repository, repository_id)
         if repository is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Repository not found")
-        _require_admin(request, dashboard_session, repository)
+        role = _require_repository_action(
+            request, dashboard_session, repository, RepositoryAction.VIEW
+        )
         runs = list(
             database.scalars(
                 select(ReviewRun)
@@ -196,6 +210,9 @@ def repository_settings(request: Request, repository_id: int) -> Response:
                 "config": repository.config,
                 "runs": runs,
                 "csrf_token": dashboard_session.csrf_token,
+                "role": role,
+                "can_configure": role_allows(role, RepositoryAction.CONFIGURE),
+                "can_operate": role_allows(role, RepositoryAction.OPERATE),
             },
         )
 
@@ -210,7 +227,9 @@ async def update_repository_settings(request: Request, repository_id: int) -> Re
         repository = database.get(Repository, repository_id)
         if repository is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Repository not found")
-        _require_admin(request, dashboard_session, repository)
+        _require_repository_action(
+            request, dashboard_session, repository, RepositoryAction.CONFIGURE
+        )
         _require_csrf(request, dashboard_session, str(form.get("csrf_token", "")))
         config = repository.config or ReviewConfig(repository=repository)
         repository.enabled = form.get("enabled") == "on"
@@ -267,7 +286,9 @@ def review_run_detail(request: Request, review_run_id: int) -> Response:
             return RedirectResponse("/login/github", status_code=status.HTTP_303_SEE_OTHER)
         if run is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Review run not found")
-        _require_admin(request, dashboard_session, run.repository)
+        role = _require_repository_action(
+            request, dashboard_session, run.repository, RepositoryAction.VIEW
+        )
         return templates.TemplateResponse(
             request,
             "run.html",
@@ -275,6 +296,7 @@ def review_run_detail(request: Request, review_run_id: int) -> Response:
                 "run": run,
                 "repository": run.repository,
                 "csrf_token": dashboard_session.csrf_token,
+                "role": role,
             },
         )
 
@@ -287,7 +309,9 @@ async def retry_review(request: Request, review_run_id: int) -> RedirectResponse
         run = database.get(ReviewRun, review_run_id)
         if dashboard_session is None or run is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Review run not found")
-        _require_admin(request, dashboard_session, run.repository)
+        _require_repository_action(
+            request, dashboard_session, run.repository, RepositoryAction.OPERATE
+        )
         _require_csrf(request, dashboard_session, str(form.get("csrf_token", "")))
         validate_review_run_transition(ReviewRunStatus(run.status), ReviewRunStatus.QUEUED)
         run.status = ReviewRunStatus.QUEUED.value
@@ -310,7 +334,9 @@ async def resend_notification(request: Request, review_run_id: int) -> RedirectR
         run = database.get(ReviewRun, review_run_id)
         if dashboard_session is None or run is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Review run not found")
-        _require_admin(request, dashboard_session, run.repository)
+        _require_repository_action(
+            request, dashboard_session, run.repository, RepositoryAction.OPERATE
+        )
         _require_csrf(request, dashboard_session, str(form.get("csrf_token", "")))
         config = run.repository.config
         if config is None or not config.discord_webhook_encrypted:
