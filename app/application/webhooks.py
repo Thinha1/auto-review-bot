@@ -137,13 +137,17 @@ class GitHubWebhookService:
         account = payload["installation"].get("account") or {}
         installation.account_login = account.get("login")
         installation.account_type = account.get("type")
-        if action in {"deleted", "suspend"}:
+        if action == "deleted":
             installation.suspended_at = datetime.now(UTC)
             for repository in installation.repositories:
                 repository.enabled = False
             return
+        if action == "suspend":
+            installation.suspended_at = datetime.now(UTC)
+            return
         if action == "unsuspend":
             installation.suspended_at = None
+            return
 
         if event == "installation":
             added = payload.get("repositories") or []

@@ -137,3 +137,83 @@ def test_webhook_skips_suspended_installation_without_queueing_work(tmp_path: Pa
             assert run is not None
             assert run.status == "skipped"
             assert run.failure_code == "installation_suspended"
+
+
+def test_installation_suspend_preserves_repository_policy_until_delete(tmp_path: Path) -> None:
+    secret = "webhook-secret"
+    settings = Settings(
+        github_webhook_secret=secret,
+        master_key="m" * 32,
+        database_url=f"sqlite:///{tmp_path / 'installation-lifecycle.db'}",
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        Base.metadata.create_all(app.state.engine)
+        with session_scope(app.state.session_factory) as session:
+            installation = GitHubInstallation(github_installation_id=1001)
+            session.add_all(
+                [
+                    Repository(
+                        github_repository_id=2002,
+                        installation=installation,
+                        owner="octo",
+                        name="enabled-repo",
+                        enabled=True,
+                    ),
+                    Repository(
+                        github_repository_id=2003,
+                        installation=installation,
+                        owner="octo",
+                        name="disabled-repo",
+                        enabled=False,
+                    ),
+                ]
+            )
+
+        def send_installation(action: str, delivery_id: str) -> None:
+            body = json.dumps(
+                {
+                    "action": action,
+                    "installation": {
+                        "id": 1001,
+                        "account": {"login": "octo", "type": "User"},
+                    },
+                }
+            ).encode()
+            response = client.post(
+                "/api/webhooks/github",
+                content=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-GitHub-Delivery": delivery_id,
+                    "X-GitHub-Event": "installation",
+                    "X-Hub-Signature-256": signature(body, secret),
+                },
+            )
+            assert response.status_code == 202
+
+        send_installation("suspend", "delivery-suspend")
+        with session_scope(app.state.session_factory) as session:
+            installation = session.scalar(select(GitHubInstallation))
+            repositories = list(
+                session.scalars(select(Repository).order_by(Repository.github_repository_id))
+            )
+            assert installation is not None
+            assert installation.suspended_at is not None
+            assert [repository.enabled for repository in repositories] == [True, False]
+
+        send_installation("unsuspend", "delivery-unsuspend")
+        with session_scope(app.state.session_factory) as session:
+            installation = session.scalar(select(GitHubInstallation))
+            repositories = list(
+                session.scalars(select(Repository).order_by(Repository.github_repository_id))
+            )
+            assert installation is not None
+            assert installation.suspended_at is None
+            assert [repository.enabled for repository in repositories] == [True, False]
+
+        send_installation("deleted", "delivery-deleted")
+        with session_scope(app.state.session_factory) as session:
+            repositories = list(session.scalars(select(Repository)))
+            assert repositories
+            assert all(not repository.enabled for repository in repositories)

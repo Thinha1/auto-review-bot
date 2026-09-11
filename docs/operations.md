@@ -59,6 +59,10 @@ GitHub/model call and again after model completion before GitHub Checks or Disco
 run stopped this way is `skipped` with `repository_disabled` or `installation_suspended`; model
 usage already incurred before the second check is still settled.
 
+Installation suspension is temporary and preserves each repository's existing `enabled` policy;
+an `unsuspend` event restores eligibility without turning administratively-disabled repositories
+back on. Installation deletion and explicit repository removal remain permanent disable signals.
+
 ## Rotating the master key
 
 `review_configs.key_version` records which master-key version encrypted each Discord webhook.
