@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,9 +31,12 @@ class FakeGitHub:
         self.head_sha = head_sha
         self.fail_check = fail_check
         self.checks: list[tuple[str, str, str, str, ReviewResult]] = []
+        self.pull_requests = 0
+        self.head_requests = 0
 
     def get_pull(self, owner: str, name: str, pull_number: int) -> PullRequestData:
         del owner, name
+        self.pull_requests += 1
         return PullRequestData(
             number=pull_number,
             title="Fix auth",
@@ -52,6 +56,7 @@ class FakeGitHub:
 
     def get_head_sha(self, owner: str, name: str, pull_number: int) -> str:
         del owner, name, pull_number
+        self.head_requests += 1
         return self.head_sha
 
     def publish_review_check(
@@ -91,6 +96,18 @@ class TimeoutModelProvider:
     def review(self, request: ModelRequest) -> ModelResponse:
         del request
         raise httpx.ConnectTimeout("model timeout")
+
+
+class DisablingModelProvider(FakeModelProvider):
+    def __init__(self, factory: Any, responses: list[ModelReviewOutput]) -> None:
+        super().__init__(responses)
+        self.factory = factory
+
+    def review(self, request: ModelRequest) -> ModelResponse:
+        with session_scope(self.factory) as session:
+            repository = session.query(Repository).one()
+            repository.enabled = False
+        return super().review(request)
 
 
 def metric_values(registry: Metrics) -> dict[str, float]:
@@ -203,6 +220,80 @@ def test_worker_supersedes_stale_run_without_notification(worker_state: Any) -> 
         run = session.get(ReviewRun, run_id)
         assert run is not None
         assert run.status == "superseded"
+    assert notifier.sent == []
+
+
+@pytest.mark.parametrize(
+    ("repository_enabled", "installation_suspended", "expected_reason"),
+    [
+        (False, False, "repository_disabled"),
+        (True, True, "installation_suspended"),
+    ],
+)
+def test_worker_skips_ineligible_repository_before_external_calls(
+    worker_state: Any,
+    repository_enabled: bool,
+    installation_suspended: bool,
+    expected_reason: str,
+) -> None:
+    factory, cipher, run_id = worker_state
+    with session_scope(factory) as session:
+        repository = session.query(Repository).one()
+        repository.enabled = repository_enabled
+        if installation_suspended:
+            repository.installation.suspended_at = datetime(2026, 9, 11, tzinfo=UTC)
+    github = FakeGitHub()
+    provider = FakeModelProvider([model_output()])
+    notifier = FakeNotifier()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: github,
+        provider,
+        notifier,
+        cipher,
+        worker_id="worker-1",
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        assert run is not None
+        assert run.status == "skipped"
+        assert run.failure_code == expected_reason
+    assert github.pull_requests == 0
+    assert provider.requests == []
+    assert notifier.sent == []
+
+
+def test_worker_rechecks_eligibility_after_model_before_delivery(worker_state: Any) -> None:
+    factory, cipher, run_id = worker_state
+    github = FakeGitHub()
+    provider = DisablingModelProvider(factory, [model_output()])
+    notifier = FakeNotifier()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: github,
+        provider,
+        notifier,
+        cipher,
+        worker_id="worker-1",
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        usage = session.query(RepositoryUsage).one()
+        assert run is not None
+        assert run.status == "skipped"
+        assert run.failure_code == "repository_disabled"
+        assert run.input_tokens == 100
+        assert run.output_tokens == 50
+        assert usage.reserved_tokens == 0
+        assert usage.input_tokens == 100
+        assert usage.output_tokens == 50
+    assert github.head_requests == 0
     assert notifier.sent == []
 
 

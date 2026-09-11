@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.application.review_eligibility import review_ineligibility_reason
 from app.domain.states import ReviewRunStatus
 from app.storage.models import GitHubInstallation, Repository, ReviewConfig
 from app.storage.repositories import ReviewRunRepository, WebhookDeliveryRepository
@@ -73,12 +74,13 @@ class GitHubWebhookService:
             return WebhookOutcome(
                 accepted=True, duplicate=True, review_run_id=run.id, reason="duplicate_run"
             )
-        skip_reason: str | None = None
-        if not repository.enabled:
-            skip_reason = "repository_disabled"
-        elif action not in config.trigger_events:
+        skip_reason = review_ineligibility_reason(
+            repository_enabled=repository.enabled,
+            installation_suspended_at=repository.installation.suspended_at,
+        )
+        if skip_reason is None and action not in config.trigger_events:
             skip_reason = "trigger_disabled"
-        elif bool(pull.get("draft")) and config.ignore_drafts:
+        elif skip_reason is None and bool(pull.get("draft")) and config.ignore_drafts:
             skip_reason = "draft_ignored"
         if skip_reason:
             run.status = ReviewRunStatus.SKIPPED.value

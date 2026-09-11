@@ -259,6 +259,7 @@ Agent không nên gửi:
 - Reserve atomically toàn bộ token estimate trước model call; run vượt budget phải `skipped`.
 - Chống SSRF nếu backend nhận URL do người dùng cấu hình.
 - Dùng `head_sha` để tránh review và gửi Discord lặp lại.
+- Kiểm tra lại trạng thái repository/installation trước xử lý và trước khi publish kết quả.
 - Chỉ cho phép người có quyền quản trị repository thay đổi cấu hình.
 
 ## 9. Stack đề xuất

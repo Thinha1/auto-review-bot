@@ -12,6 +12,7 @@ from typing import Protocol
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.application.review_eligibility import review_ineligibility_reason
 from app.application.usage import UsageService
 from app.config import Settings, get_settings
 from app.domain.states import NotificationStatus, ReviewRunStatus
@@ -139,6 +140,7 @@ class RunContext:
     max_output_tokens_per_call: int
     monthly_token_budget: int
     discord_webhook_encrypted: str | None
+    ineligibility_reason: str | None
 
 
 class ReviewProcessor:
@@ -256,11 +258,18 @@ class ReviewProcessor:
                     snapshot.get("monthly_token_budget", config.monthly_token_budget)
                 ),
                 discord_webhook_encrypted=config.discord_webhook_encrypted,
+                ineligibility_reason=review_ineligibility_reason(
+                    repository_enabled=repository.enabled,
+                    installation_suspended_at=repository.installation.suspended_at,
+                ),
             )
 
     def _process(self, review_run_id: int) -> None:
         started = monotonic()
         context = self._load_context(review_run_id)
+        if context.ineligibility_reason is not None:
+            self._mark_skipped(review_run_id, context.ineligibility_reason)
+            return
         github = self.github_factory(context.installation_id)
         pull = github.get_pull(context.owner, context.name, context.pull_number)
         if pull.head_sha != context.head_sha:
@@ -293,7 +302,8 @@ class ReviewProcessor:
             reservation_tokens,
             token_budget=context.monthly_token_budget,
         ):
-            self._mark_budget_exceeded(review_run_id)
+            self._mark_skipped(review_run_id, "monthly_token_budget_exceeded")
+            self.metrics.increment("pr_review_runs_budget_exceeded_total")
             return
 
         result = self.engine.review(
@@ -307,6 +317,15 @@ class ReviewProcessor:
         self.metrics.increment("pr_review_model_calls_total", len(prepared.chunks))
         self.metrics.increment("pr_review_model_input_tokens_total", result.input_tokens)
         self.metrics.increment("pr_review_model_output_tokens_total", result.output_tokens)
+        ineligibility_reason = self._current_ineligibility_reason(review_run_id)
+        if ineligibility_reason is not None:
+            self._mark_skipped(
+                review_run_id,
+                ineligibility_reason,
+                result=result,
+                model_calls=len(prepared.chunks),
+            )
+            return
         if (
             github.get_head_sha(context.owner, context.name, context.pull_number)
             != context.head_sha
@@ -440,16 +459,41 @@ class ReviewProcessor:
                 token_budget=token_budget,
             )
 
-    def _mark_budget_exceeded(self, review_run_id: int) -> None:
+    def _current_ineligibility_reason(self, review_run_id: int) -> str | None:
         with session_scope(self.session_factory) as session:
             run = ReviewQueue(session)._locked_run(review_run_id, self.worker_id)
+            return review_ineligibility_reason(
+                repository_enabled=run.repository.enabled,
+                installation_suspended_at=run.repository.installation.suspended_at,
+            )
+
+    def _mark_skipped(
+        self,
+        review_run_id: int,
+        reason: str,
+        *,
+        result: ReviewResult | None = None,
+        model_calls: int = 0,
+    ) -> None:
+        with session_scope(self.session_factory) as session:
+            run = ReviewQueue(session)._locked_run(review_run_id, self.worker_id)
+            if result is not None:
+                UsageService(SQLAlchemyUsageBudgetStore(session)).settle(
+                    review_run_id,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    model_calls=model_calls,
+                )
+                run.input_tokens = result.input_tokens
+                run.output_tokens = result.output_tokens
+                run.model_calls = model_calls
             run.status = ReviewRunStatus.SKIPPED.value
             run.completed_at = datetime.now(UTC)
-            run.failure_code = "monthly_token_budget_exceeded"
+            run.failure_code = reason
             run.locked_at = None
             run.locked_by = None
             run.lease_expires_at = None
-        self.metrics.increment("pr_review_runs_budget_exceeded_total")
+        self.metrics.increment("pr_review_runs_skipped_total")
 
     def _send_notification(
         self, notification_id: int, encrypted_webhook: str, review: DiscordReview
