@@ -256,7 +256,8 @@ Agent không nên gửi:
 - Không thực thi code đến từ Pull Request trong review worker.
 - Không đưa `.env`, key, certificate hoặc file bị ignore vào model context.
 - Giới hạn kích thước payload, diff, số model call và thời gian xử lý.
-- Reserve atomically toàn bộ token estimate trước model call; run vượt budget phải `skipped`.
+- Reserve atomically toàn bộ token estimate, gồm prompt và structured-output schema, trước model
+  call; run vượt budget phải `skipped`.
 - Chống SSRF nếu backend nhận URL do người dùng cấu hình.
 - Dùng `head_sha` để tránh review và gửi Discord lặp lại.
 - Kiểm tra lại trạng thái repository/installation trước xử lý và trước khi publish kết quả.

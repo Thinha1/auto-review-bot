@@ -139,8 +139,9 @@ Production deployments can use `postgresql+psycopg://...`; PostgreSQL workers cl
 
 Each repository has a UTC calendar-month token budget, configured from its dashboard settings.
 Before any model call, the worker atomically reserves a deterministic estimate made from the
-rendered prompts plus `max_output_tokens_per_call` for every chunk. Competing workers therefore
-cannot reserve the same remaining capacity. Once a review finishes, the reservation is replaced
+rendered prompts, structured-output schema, and `max_output_tokens_per_call` for every chunk.
+Competing workers therefore cannot reserve the same remaining capacity. Once a review finishes,
+the reservation is replaced
 with the provider's actual input/output usage and model-call count; actual usage may be higher
 than the estimate, in which case remaining capacity is reported as zero.
 

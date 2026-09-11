@@ -93,9 +93,10 @@ disclosed.
 
 ## Usage budgets
 
-Repository budgets use UTC calendar months. A worker reserves the estimated prompt tokens plus
-the configured maximum output tokens for every planned model call. Successful and superseded
-reviews settle that reservation with actual provider-reported input/output tokens. Automatic
+Repository budgets use UTC calendar months. A worker reserves the estimated prompt and
+structured-output schema tokens plus the configured maximum output tokens for every planned
+model call. Successful and superseded reviews settle that reservation with actual
+provider-reported input/output tokens. Automatic
 retries retain the same reservation so concurrent or repeated attempts do not reserve twice;
 terminal failures release it. Because prompt tokens are estimated before the provider responds,
 settled usage can exceed the reservation; the dashboard then reports zero remaining capacity and
