@@ -13,6 +13,7 @@ evidence. Run the complete gate in `AGENTS.md` before marking a release.
 | Failed work has a redacted code and bounded retries | `tests/unit/test_worker_failures.py`, `tests/integration/test_worker.py` |
 | Stale HEAD runs never notify Discord | `tests/integration/test_worker.py::test_worker_supersedes_stale_run_without_notification` |
 | Disabled repositories and suspended installations stop queued/in-flight delivery | `tests/integration/test_worker.py::test_worker_skips_ineligible_repository_before_external_calls`, `tests/integration/test_worker.py::test_worker_rechecks_eligibility_after_model_before_delivery` |
+| Installation suspend/unsuspend preserves repository enable policy | `tests/integration/test_webhook.py::test_installation_suspend_preserves_repository_policy_until_delete` |
 | Discord messages suppress all mentions | `tests/unit/test_discord.py::test_formatter_paginates_and_disables_mentions` |
 | Secrets are encrypted, write-only, and outbound URLs are allowlisted | `tests/unit/test_security.py`, `tests/integration/test_dashboard.py` |
 | Queue claim, lease, and recovery are deterministic | `tests/integration/test_queue.py` |

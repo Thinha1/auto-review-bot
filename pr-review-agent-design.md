@@ -260,6 +260,7 @@ Agent không nên gửi:
 - Chống SSRF nếu backend nhận URL do người dùng cấu hình.
 - Dùng `head_sha` để tránh review và gửi Discord lặp lại.
 - Kiểm tra lại trạng thái repository/installation trước xử lý và trước khi publish kết quả.
+- Tạm ngưng installation không được ghi đè policy `enabled`; chỉ delete/remove mới disable repo.
 - Chỉ cho phép người có quyền quản trị repository thay đổi cấu hình.
 
 ## 9. Stack đề xuất
