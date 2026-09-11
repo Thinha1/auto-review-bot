@@ -11,7 +11,7 @@
   </div>
   <section class="card table-wrap">
     <table>
-      <thead><tr><th>Repository</th><th>Role</th><th>Auto review</th><th>Model</th><th>Last run</th></tr></thead>
+      <thead><tr><th>Repository</th><th>Role</th><th>Auto review</th><th>Model</th><th>Monthly usage</th><th>Last run</th></tr></thead>
       <tbody>
         {% for row in rows %}
           <tr>
@@ -19,10 +19,11 @@
             <td><span class="pill">{{ row.role.value }}</span></td>
             <td><span class="pill {{ 'ok' if row.repository.enabled else '' }}">{{ 'Enabled' if row.repository.enabled else 'Disabled' }}</span></td>
             <td>{{ row.config.model if row.config else '—' }}</td>
+            <td>{{ row.usage.used_tokens }} / {{ row.usage.token_budget }}</td>
             <td>{{ row.latest.status if row.latest else 'Never' }}</td>
           </tr>
         {% else %}
-          <tr><td colspan="5" class="empty">No accessible repositories are connected.</td></tr>
+          <tr><td colspan="6" class="empty">No accessible repositories are connected.</td></tr>
         {% endfor %}
       </tbody>
     </table>

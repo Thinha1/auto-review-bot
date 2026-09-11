@@ -15,6 +15,7 @@ class ModelRequest:
     system_prompt: str
     user_prompt: str
     model: str
+    max_output_tokens: int = 4000
 
 
 @dataclass(frozen=True, slots=True)

@@ -37,6 +37,13 @@ def test_new_non_null_limits_backfill_existing_configs(
     command.upgrade(config, "head")
 
     connection = sqlite3.connect(database_path)
-    value = connection.execute("SELECT max_model_calls FROM review_configs WHERE id = 1").fetchone()
+    value = connection.execute(
+        "SELECT max_model_calls, max_output_tokens_per_call, monthly_token_budget "
+        "FROM review_configs WHERE id = 1"
+    ).fetchone()
+    usage_table = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'repository_usage'"
+    ).fetchone()
     connection.close()
-    assert value == (20,)
+    assert value == (20, 4000, 1_000_000)
+    assert usage_table == ("repository_usage",)

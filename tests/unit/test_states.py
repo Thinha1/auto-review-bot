@@ -18,6 +18,7 @@ from app.domain.states import (
         (ReviewRunStatus.RUNNING, ReviewRunStatus.COMPLETED),
         (ReviewRunStatus.RUNNING, ReviewRunStatus.FAILED),
         (ReviewRunStatus.RUNNING, ReviewRunStatus.QUEUED),
+        (ReviewRunStatus.RUNNING, ReviewRunStatus.SKIPPED),
         (ReviewRunStatus.RUNNING, ReviewRunStatus.SUPERSEDED),
         (ReviewRunStatus.FAILED, ReviewRunStatus.QUEUED),
     ],

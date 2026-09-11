@@ -5,6 +5,12 @@
   <div class="page-title">
     <div><p class="eyebrow">REPOSITORY · {{ role.value }}</p><h1>{{ repository.owner }}/{{ repository.name }}</h1></div>
   </div>
+  <section class="card summary-grid">
+    <div><span class="label">Monthly tokens</span><strong>{{ usage.used_tokens }} / {{ usage.token_budget }}</strong></div>
+    <div><span class="label">Reserved</span><strong>{{ usage.reserved_tokens }}</strong></div>
+    <div><span class="label">Remaining</span><strong>{{ usage.remaining_tokens }}</strong></div>
+    <div><span class="label">Model calls</span><strong>{{ usage.model_calls }}</strong></div>
+  </section>
   <section class="card">
     <h2>Review policy</h2>
     {% if can_configure %}
@@ -31,6 +37,8 @@
       <label>Maximum findings<input type="number" name="max_findings" min="1" max="100" value="{{ config.max_findings if config else 20 }}"></label>
       <label>Maximum input tokens<input type="number" name="max_input_tokens" min="1" value="{{ config.max_input_tokens if config else 50000 }}"></label>
       <label>Maximum model calls<input type="number" name="max_model_calls" min="1" max="100" value="{{ config.max_model_calls if config else 20 }}"></label>
+      <label>Maximum output tokens per call<input type="number" name="max_output_tokens_per_call" min="100" max="100000" value="{{ config.max_output_tokens_per_call if config else 4000 }}"></label>
+      <label>Monthly token budget<input type="number" name="monthly_token_budget" min="1000" max="1000000000" value="{{ config.monthly_token_budget if config else 1000000 }}"></label>
       <label class="wide">Discord webhook <span class="muted">({{ 'configured' if config and config.discord_webhook_encrypted else 'not configured' }})</span>
         <input type="password" name="discord_webhook" autocomplete="new-password" placeholder="Leave blank to keep the current secret">
       </label>

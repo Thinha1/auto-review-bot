@@ -59,6 +59,26 @@ cannot trigger cost-bearing or secret-bearing operations. A `403` after a GitHub
 expected; a `404` from GitHub is treated as no access so private repository existence is not
 disclosed.
 
+## Usage budgets
+
+Repository budgets use UTC calendar months. A worker reserves the estimated prompt tokens plus
+the configured maximum output tokens for every planned model call. Successful and superseded
+reviews settle that reservation with actual provider-reported input/output tokens. Automatic
+retries retain the same reservation so concurrent or repeated attempts do not reserve twice;
+terminal failures release it. Because prompt tokens are estimated before the provider responds,
+settled usage can exceed the reservation; the dashboard then reports zero remaining capacity and
+later runs cannot reserve more tokens in that period.
+
+If a run is `skipped` with `monthly_token_budget_exceeded`, either wait for the next UTC month or
+have a repository admin raise the budget after confirming expected cost. The skipped run remains
+immutable; a new PR synchronization event creates a new run. Dashboard usage comes from
+`repository_usage` and survives API/worker restarts.
+
+A provider may charge for a request that fails before returning usage metadata. Such unknown
+usage cannot be settled exactly from the application; reconcile it against the provider invoice
+when investigating cost discrepancies. Never edit `reserved_tokens` directly while a run is
+`running` or queued for automatic retry.
+
 ## Failure triage
 
 - `GitHub` authentication failures: verify App ID, private key, installation status, and app

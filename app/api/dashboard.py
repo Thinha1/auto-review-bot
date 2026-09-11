@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from sqlalchemy import select
 
+from app.application.usage import UsageService
 from app.authz import RepositoryAction, RepositoryRole, role_allows
 from app.domain.states import ReviewRunStatus, validate_review_run_transition
 from app.github.oauth import GitHubOAuthClient
@@ -27,6 +28,7 @@ from app.storage.models import (
     ReviewConfig,
     ReviewRun,
 )
+from app.storage.usage import SQLAlchemyUsageBudgetStore
 
 router = APIRouter()
 templates = Jinja2Templates(directory=str(Path(__file__).parents[2] / "templates"))
@@ -163,6 +165,14 @@ def dashboard(request: Request) -> Response:
                     "repository": repository,
                     "config": repository.config,
                     "role": role,
+                    "usage": UsageService(SQLAlchemyUsageBudgetStore(database)).snapshot(
+                        repository.id,
+                        token_budget=(
+                            repository.config.monthly_token_budget
+                            if repository.config is not None
+                            else 1_000_000
+                        ),
+                    ),
                     "latest": database.scalar(
                         select(ReviewRun)
                         .where(ReviewRun.repository_id == repository.id)
@@ -202,13 +212,19 @@ def repository_settings(request: Request, repository_id: int) -> Response:
                 .limit(100)
             )
         )
+        config = repository.config
+        usage = UsageService(SQLAlchemyUsageBudgetStore(database)).snapshot(
+            repository.id,
+            token_budget=config.monthly_token_budget if config is not None else 1_000_000,
+        )
         return templates.TemplateResponse(
             request,
             "repository.html",
             {
                 "repository": repository,
-                "config": repository.config,
+                "config": config,
                 "runs": runs,
+                "usage": usage,
                 "csrf_token": dashboard_session.csrf_token,
                 "role": role,
                 "can_configure": role_allows(role, RepositoryAction.CONFIGURE),
@@ -248,12 +264,14 @@ async def update_repository_settings(request: Request, repository_id: int) -> Re
             line.strip() for line in str(form.get("ignored_paths", "")).splitlines() if line.strip()
         ]
         config.custom_instructions = str(form.get("custom_instructions", ""))[:10_000] or None
-        for field, default, maximum in (
-            ("max_files", 100, 3000),
-            ("max_diff_lines", 5000, 100_000),
-            ("max_findings", 20, 100),
-            ("max_input_tokens", 50_000, 1_000_000),
-            ("max_model_calls", 20, 100),
+        for field, default, minimum, maximum in (
+            ("max_files", 100, 1, 3000),
+            ("max_diff_lines", 5000, 1, 100_000),
+            ("max_findings", 20, 1, 100),
+            ("max_input_tokens", 50_000, 1, 1_000_000),
+            ("max_model_calls", 20, 1, 100),
+            ("max_output_tokens_per_call", 4000, 100, 100_000),
+            ("monthly_token_budget", 1_000_000, 1000, 1_000_000_000),
         ):
             raw_value = form.get(field, default)
             if not isinstance(raw_value, (str, int)):
@@ -264,7 +282,7 @@ async def update_repository_settings(request: Request, repository_id: int) -> Re
                 raise HTTPException(
                     status.HTTP_422_UNPROCESSABLE_ENTITY, f"Invalid {field}"
                 ) from exc
-            setattr(config, field, max(1, min(value, maximum)))
+            setattr(config, field, max(minimum, min(value, maximum)))
         webhook_url = str(form.get("discord_webhook", "")).strip()
         if form.get("clear_discord_webhook") == "on":
             config.discord_webhook_encrypted = None
@@ -321,6 +339,9 @@ async def retry_review(request: Request, review_run_id: int) -> RedirectResponse
         run.error = None
         run.last_error = None
         run.completed_at = None
+        run.usage_period_start = None
+        run.usage_reservation_tokens = 0
+        run.usage_settled_at = None
     return RedirectResponse(
         f"/dashboard/repositories/{run.repository_id}", status_code=status.HTTP_303_SEE_OTHER
     )

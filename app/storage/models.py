@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -70,6 +71,9 @@ class Repository(TimestampMixin, Base):
     review_runs: Mapped[list[ReviewRun]] = relationship(
         back_populates="repository", cascade="all, delete-orphan"
     )
+    usage_periods: Mapped[list[RepositoryUsage]] = relationship(
+        back_populates="repository", cascade="all, delete-orphan"
+    )
 
 
 class ReviewConfig(TimestampMixin, Base):
@@ -94,6 +98,8 @@ class ReviewConfig(TimestampMixin, Base):
     max_findings: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
     max_input_tokens: Mapped[int] = mapped_column(Integer, default=50_000, nullable=False)
     max_model_calls: Mapped[int] = mapped_column(Integer, default=20, nullable=False)
+    max_output_tokens_per_call: Mapped[int] = mapped_column(Integer, default=4000, nullable=False)
+    monthly_token_budget: Mapped[int] = mapped_column(Integer, default=1_000_000, nullable=False)
 
     repository: Mapped[Repository] = relationship(back_populates="config")
 
@@ -137,6 +143,7 @@ class ReviewRun(TimestampMixin, Base):
     risk: Mapped[str | None] = mapped_column(String(20))
     input_tokens: Mapped[int | None] = mapped_column(Integer)
     output_tokens: Mapped[int | None] = mapped_column(Integer)
+    model_calls: Mapped[int | None] = mapped_column(Integer)
     duration_ms: Mapped[int | None] = mapped_column(Integer)
     error: Mapped[str | None] = mapped_column(Text)
     failure_code: Mapped[str | None] = mapped_column(String(100))
@@ -152,6 +159,9 @@ class ReviewRun(TimestampMixin, Base):
     is_partial: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     skipped_files: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     skipped_lines: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    usage_period_start: Mapped[date | None] = mapped_column(Date)
+    usage_reservation_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    usage_settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     repository: Mapped[Repository] = relationship(back_populates="review_runs")
     findings: Mapped[list[Finding]] = relationship(
@@ -223,6 +233,29 @@ class GitHubCheckDelivery(TimestampMixin, Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     review_run: Mapped[ReviewRun] = relationship(back_populates="github_check_deliveries")
+
+
+class RepositoryUsage(TimestampMixin, Base):
+    __tablename__ = "repository_usage"
+    __table_args__ = (
+        UniqueConstraint("repository_id", "period_start", name="uq_repository_usage_period"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    repository_id: Mapped[int] = mapped_column(
+        ForeignKey("repositories.id", ondelete="CASCADE"), index=True
+    )
+    period_start: Mapped[date] = mapped_column(Date, nullable=False)
+    reserved_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    model_calls: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    review_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now, nullable=False
+    )
+
+    repository: Mapped[Repository] = relationship(back_populates="usage_periods")
 
 
 class DashboardSession(TimestampMixin, Base):

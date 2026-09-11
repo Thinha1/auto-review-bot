@@ -105,6 +105,7 @@ Dashboard ban đầu chỉ cần ba màn hình.
 - Trạng thái bật hoặc tắt auto review.
 - Discord destination hiện tại.
 - Model và policy đang sử dụng.
+- Token usage của tháng UTC hiện tại.
 - Trạng thái lần review gần nhất.
 
 ### Repository settings
@@ -113,7 +114,7 @@ Dashboard ban đầu chỉ cần ba màn hình.
 - Discord webhook URL.
 - Chọn event kích hoạt review.
 - Bỏ qua draft PR hoặc review ngay.
-- Model và giới hạn token.
+- Model, giới hạn output mỗi call và token budget theo tháng UTC.
 - Severity tối thiểu được gửi đến Discord.
 - File pattern cần bỏ qua.
 - Custom review instructions.
@@ -154,6 +155,8 @@ Dashboard ban đầu chỉ cần ba màn hình.
 | `max_files` | Số file tối đa |
 | `max_diff_lines` | Số dòng diff tối đa |
 | `max_findings` | Số finding tối đa |
+| `max_output_tokens_per_call` | Trần output token của mỗi model call |
+| `monthly_token_budget` | Token budget của repository theo tháng UTC |
 
 ### `review_runs`
 
@@ -168,6 +171,10 @@ Dashboard ban đầu chỉ cần ba màn hình.
 | `risk` | Mức rủi ro tổng thể |
 | `input_tokens` | Token đầu vào |
 | `output_tokens` | Token đầu ra |
+| `model_calls` | Số model call đã thực hiện |
+| `usage_period_start` | Tháng UTC chứa reservation của lần chạy |
+| `usage_reservation_tokens` | Token đang giữ chỗ trước khi settle |
+| `usage_settled_at` | Thời điểm reservation được settle hoặc release |
 | `error` | Lỗi nếu có |
 | `created_at` | Thời điểm tạo |
 | `completed_at` | Thời điểm hoàn tất |
@@ -184,6 +191,18 @@ Dashboard ban đầu chỉ cần ba màn hình.
 | `explanation` | Giải thích vấn đề |
 | `suggestion` | Hướng xử lý đề xuất |
 | `fingerprint` | Khóa dùng để loại finding trùng |
+
+### `repository_usage`
+
+| Field | Ý nghĩa |
+| --- | --- |
+| `repository_id` | Repository được đo usage |
+| `period_start` | Ngày đầu tháng UTC; duy nhất trong repository |
+| `reserved_tokens` | Token đã giữ chỗ cho các run chưa kết thúc |
+| `input_tokens` | Token đầu vào thực tế đã settle |
+| `output_tokens` | Token đầu ra thực tế đã settle |
+| `model_calls` | Tổng số model call đã settle |
+| `review_runs` | Tổng số review run đã settle |
 
 ## 6. Output của mô hình
 
@@ -237,6 +256,7 @@ Agent không nên gửi:
 - Không thực thi code đến từ Pull Request trong review worker.
 - Không đưa `.env`, key, certificate hoặc file bị ignore vào model context.
 - Giới hạn kích thước payload, diff, số model call và thời gian xử lý.
+- Reserve atomically toàn bộ token estimate trước model call; run vượt budget phải `skipped`.
 - Chống SSRF nếu backend nhận URL do người dùng cấu hình.
 - Dùng `head_sha` để tránh review và gửi Discord lặp lại.
 - Chỉ cho phép người có quyền quản trị repository thay đổi cấu hình.

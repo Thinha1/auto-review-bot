@@ -16,6 +16,7 @@ from app.storage.models import (
     GitHubInstallation,
     NotificationDelivery,
     Repository,
+    RepositoryUsage,
     ReviewConfig,
     ReviewRun,
 )
@@ -67,6 +68,12 @@ class FakeGitHub:
             url="https://github.com/octo/repo/runs/42",
             conclusion="action_required",
         )
+
+
+class SupersedingGitHub(FakeGitHub):
+    def get_head_sha(self, owner: str, name: str, pull_number: int) -> str:
+        del owner, name, pull_number
+        return "new-head"
 
 
 class FakeNotifier:
@@ -141,6 +148,13 @@ def test_worker_completes_review_and_sends_notification(worker_state: Any) -> No
         assert run is not None
         assert run.status == "completed"
         assert len(run.findings) == 1
+        assert run.model_calls == 1
+        usage = session.query(RepositoryUsage).one()
+        assert usage.input_tokens == 100
+        assert usage.output_tokens == 50
+        assert usage.reserved_tokens == 0
+        assert usage.model_calls == 1
+        assert usage.review_runs == 1
         delivery = session.query(NotificationDelivery).one()
         assert delivery.status == "sent"
         assert delivery.message_ids == ["message-1"]
@@ -165,6 +179,87 @@ def test_worker_supersedes_stale_run_without_notification(worker_state: Any) -> 
         assert run is not None
         assert run.status == "superseded"
     assert notifier.sent == []
+
+
+def test_worker_settles_usage_when_head_changes_after_model_call(worker_state: Any) -> None:
+    factory, cipher, run_id = worker_state
+    notifier = FakeNotifier()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: SupersedingGitHub(),
+        FakeModelProvider([model_output()]),
+        notifier,
+        cipher,
+        worker_id="worker-1",
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        usage = session.query(RepositoryUsage).one()
+        assert run is not None
+        assert run.status == "superseded"
+        assert run.input_tokens == 100
+        assert run.output_tokens == 50
+        assert usage.reserved_tokens == 0
+        assert usage.input_tokens == 100
+        assert usage.output_tokens == 50
+    assert notifier.sent == []
+
+
+def test_worker_skips_review_when_monthly_budget_cannot_be_reserved(
+    worker_state: Any,
+) -> None:
+    factory, cipher, run_id = worker_state
+    with session_scope(factory) as session:
+        config = session.query(ReviewConfig).one()
+        config.monthly_token_budget = 1000
+    provider = FakeModelProvider([model_output()])
+    notifier = FakeNotifier()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: FakeGitHub(),
+        provider,
+        notifier,
+        cipher,
+        worker_id="worker-1",
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        assert run is not None
+        assert run.status == "skipped"
+        assert run.failure_code == "monthly_token_budget_exceeded"
+        usage = session.query(RepositoryUsage).one()
+        assert usage.reserved_tokens == 0
+        assert usage.input_tokens == 0
+    assert provider.requests == []
+    assert notifier.sent == []
+
+
+def test_terminal_model_failure_releases_usage_reservation(worker_state: Any) -> None:
+    factory, cipher, run_id = worker_state
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: FakeGitHub(),
+        FakeModelProvider([]),
+        FakeNotifier(),
+        cipher,
+        worker_id="worker-1",
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        usage = session.query(RepositoryUsage).one()
+        assert run is not None
+        assert run.status == "failed"
+        assert run.usage_reservation_tokens == 0
+        assert usage.reserved_tokens == 0
 
 
 def test_worker_publishes_and_records_github_check(worker_state: Any) -> None:

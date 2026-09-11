@@ -40,6 +40,7 @@ def test_engine_rejects_invalid_location_and_deduplicates() -> None:
     assert result.findings[0].line == 3
     assert result.risk == Severity.HIGH
     assert result.input_tokens == 200
+    assert provider.requests[0].max_output_tokens == 4000
 
 
 def test_engine_applies_severity_and_count_limits() -> None:

@@ -33,6 +33,7 @@ class ReviewEngine:
         max_findings: int = 20,
         minimum_severity: Severity = Severity.LOW,
         custom_instructions: str | None = None,
+        max_output_tokens_per_call: int = 4000,
     ) -> ReviewResult:
         findings_by_fingerprint: dict[str, FindingSchema] = {}
         summaries: list[str] = []
@@ -45,6 +46,7 @@ class ReviewEngine:
                     system_prompt=SYSTEM_PROMPT,
                     user_prompt=build_user_prompt(chunk.text, custom_instructions),
                     model=model,
+                    max_output_tokens=max_output_tokens_per_call,
                 )
             )
             input_tokens += response.input_tokens

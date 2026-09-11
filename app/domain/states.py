@@ -31,6 +31,7 @@ REVIEW_RUN_TRANSITIONS: dict[ReviewRunStatus, frozenset[ReviewRunStatus]] = {
             ReviewRunStatus.COMPLETED,
             ReviewRunStatus.FAILED,
             ReviewRunStatus.QUEUED,
+            ReviewRunStatus.SKIPPED,
             ReviewRunStatus.SUPERSEDED,
         }
     ),

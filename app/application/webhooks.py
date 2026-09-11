@@ -184,5 +184,7 @@ class GitHubWebhookService:
             "max_findings": config.max_findings,
             "max_input_tokens": config.max_input_tokens,
             "max_model_calls": config.max_model_calls,
+            "max_output_tokens_per_call": config.max_output_tokens_per_call,
+            "monthly_token_budget": config.monthly_token_budget,
             "custom_instructions": config.custom_instructions,
         }
