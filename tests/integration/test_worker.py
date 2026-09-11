@@ -1,11 +1,13 @@
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
 
 from app.github.client import PublishedCheck
 from app.github.schemas import GitHubFile, PullRequestData
-from app.models.base import FakeModelProvider
+from app.metrics import Metrics
+from app.models.base import FakeModelProvider, ModelRequest, ModelResponse
 from app.notifications.discord import DiscordReview
 from app.review.schemas import FindingSchema, ModelReviewOutput, ReviewResult, Severity
 from app.security import SecretCipher
@@ -85,6 +87,20 @@ class FakeNotifier:
         return ["message-1"]
 
 
+class TimeoutModelProvider:
+    def review(self, request: ModelRequest) -> ModelResponse:
+        del request
+        raise httpx.ConnectTimeout("model timeout")
+
+
+def metric_values(registry: Metrics) -> dict[str, float]:
+    return {
+        name: float(value)
+        for line in registry.render().splitlines()
+        for name, value in [line.split()]
+    }
+
+
 @pytest.fixture
 def worker_state(tmp_path: Path):
     engine = create_engine(f"sqlite:///{tmp_path / 'worker.db'}")
@@ -134,6 +150,7 @@ def test_worker_completes_review_and_sends_notification(worker_state: Any) -> No
     factory, cipher, run_id = worker_state
     notifier = FakeNotifier()
     github = FakeGitHub()
+    registry = Metrics()
     processor = ReviewProcessor(
         factory,
         lambda _installation_id: github,
@@ -141,6 +158,7 @@ def test_worker_completes_review_and_sends_notification(worker_state: Any) -> No
         notifier,
         cipher,
         worker_id="worker-1",
+        metric_registry=registry,
     )
     assert processor.run_once() is True
     with session_scope(factory) as session:
@@ -159,6 +177,13 @@ def test_worker_completes_review_and_sends_notification(worker_state: Any) -> No
         assert delivery.status == "sent"
         assert delivery.message_ids == ["message-1"]
     assert len(notifier.sent) == 1
+    values = metric_values(registry)
+    assert values["pr_review_queue_latency_seconds_count"] == 1
+    assert values["pr_review_duration_seconds_count"] == 1
+    assert values["pr_review_model_calls_total"] == 1
+    assert values["pr_review_model_input_tokens_total"] == 100
+    assert values["pr_review_model_output_tokens_total"] == 50
+    assert values["pr_review_discord_delivery_latency_seconds_count"] == 1
 
 
 def test_worker_supersedes_stale_run_without_notification(worker_state: Any) -> None:
@@ -242,6 +267,7 @@ def test_worker_skips_review_when_monthly_budget_cannot_be_reserved(
 
 def test_terminal_model_failure_releases_usage_reservation(worker_state: Any) -> None:
     factory, cipher, run_id = worker_state
+    registry = Metrics()
     processor = ReviewProcessor(
         factory,
         lambda _installation_id: FakeGitHub(),
@@ -249,6 +275,7 @@ def test_terminal_model_failure_releases_usage_reservation(worker_state: Any) ->
         FakeNotifier(),
         cipher,
         worker_id="worker-1",
+        metric_registry=registry,
     )
 
     assert processor.run_once() is True
@@ -260,6 +287,31 @@ def test_terminal_model_failure_releases_usage_reservation(worker_state: Any) ->
         assert run.status == "failed"
         assert run.usage_reservation_tokens == 0
         assert usage.reserved_tokens == 0
+    assert metric_values(registry)["pr_review_runs_failed_total"] == 1
+
+
+def test_transient_model_failure_records_retry_metric(worker_state: Any) -> None:
+    factory, cipher, run_id = worker_state
+    registry = Metrics()
+    processor = ReviewProcessor(
+        factory,
+        lambda _installation_id: FakeGitHub(),
+        TimeoutModelProvider(),
+        FakeNotifier(),
+        cipher,
+        worker_id="worker-1",
+        metric_registry=registry,
+    )
+
+    assert processor.run_once() is True
+
+    with session_scope(factory) as session:
+        run = session.get(ReviewRun, run_id)
+        assert run is not None
+        assert run.status == "queued"
+    values = metric_values(registry)
+    assert values["pr_review_runs_retried_total"] == 1
+    assert "pr_review_runs_failed_total" not in values
 
 
 def test_worker_publishes_and_records_github_check(worker_state: Any) -> None:

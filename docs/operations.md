@@ -22,6 +22,28 @@ Before increasing worker replicas, verify the database connection limit covers t
 each worker, migrations, and operational access with headroom. The CI PostgreSQL service applies
 all migrations and exercises two uncommitted concurrent claims on every pull request.
 
+## Process metrics
+
+The API exposes its local registry at `/metrics`. Each worker exposes its own registry at
+`http://WORKER_METRICS_HOST:WORKER_METRICS_PORT/metrics`; the default is
+`http://127.0.0.1:9100/metrics`. Compose binds the worker endpoint to `0.0.0.0` but exposes port
+9100 only to its internal network. The endpoint has no authentication, so do not publish it to an
+untrusted network.
+
+Duration summaries use `_count` and `_sum` series so the collector can calculate an average over
+its chosen window:
+
+- `pr_review_queue_latency_seconds_{count,sum}` measures ready-to-claim time.
+- `pr_review_duration_seconds_{count,sum}` measures each worker attempt, including failures.
+- `pr_review_discord_delivery_latency_seconds_{count,sum}` measures Discord send attempts.
+- `pr_review_model_calls_total` and the input/output token counters record returned model usage.
+- `pr_review_runs_retried_total`, `pr_review_runs_failed_total`, and
+  `pr_review_runs_failed_attempts_total` distinguish retries, terminal failures, and all failed
+  attempts.
+
+These series reset when their process restarts. Use the repository usage records described below
+for durable token and model-call totals.
+
 ## Recovering stuck review jobs
 
 Workers renew `lease_expires_at` while processing. A new worker automatically moves an expired

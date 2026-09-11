@@ -18,7 +18,7 @@ from app.domain.states import NotificationStatus, ReviewRunStatus
 from app.github.auth import GitHubAppAuth
 from app.github.client import GitHubClient, PublishedCheck
 from app.github.schemas import PullRequestData
-from app.metrics import metrics
+from app.metrics import Metrics, MetricsServer, metrics
 from app.models.base import ModelOutputError, ModelProvider
 from app.models.openai import OpenAIModelProvider
 from app.notifications.discord import DiscordNotifier, DiscordReview
@@ -43,6 +43,15 @@ def is_transient_failure(exc: Exception) -> bool:
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code == 429 or exc.response.status_code >= 500
     return False
+
+
+def elapsed_seconds(start: datetime, end: datetime) -> float:
+    """Return a non-negative duration for SQLite-naive or timezone-aware timestamps."""
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=UTC)
+    if end.tzinfo is None:
+        end = end.replace(tzinfo=UTC)
+    return max(0.0, (end.astimezone(UTC) - start.astimezone(UTC)).total_seconds())
 
 
 class PullRequestClient(Protocol):
@@ -146,6 +155,7 @@ class ReviewProcessor:
         max_attempts: int = 3,
         poll_seconds: float = 2,
         github_checks_enabled: bool = False,
+        metric_registry: Metrics | None = None,
     ) -> None:
         self.session_factory = session_factory
         self.github_factory = github_factory
@@ -157,6 +167,7 @@ class ReviewProcessor:
         self.max_attempts = max_attempts
         self.poll_seconds = poll_seconds
         self.github_checks_enabled = github_checks_enabled
+        self.metrics = metric_registry if metric_registry is not None else metrics
 
     def run_once(self) -> bool:
         with session_scope(self.session_factory) as session:
@@ -164,9 +175,20 @@ class ReviewProcessor:
                 self.worker_id, lease_seconds=self.lease_seconds
             )
             review_run_id = claimed.id if claimed is not None else None
+            queue_latency = (
+                elapsed_seconds(
+                    claimed.next_attempt_at or claimed.created_at,
+                    claimed.started_at,
+                )
+                if claimed is not None and claimed.started_at is not None
+                else None
+            )
         if review_run_id is None:
             return False
-        metrics.increment("pr_review_runs_claimed_total")
+        self.metrics.increment("pr_review_runs_claimed_total")
+        if queue_latency is not None:
+            self.metrics.observe("pr_review_queue_latency_seconds", queue_latency)
+        processing_started = monotonic()
         try:
             with LeaseKeeper(
                 self.session_factory, review_run_id, self.worker_id, self.lease_seconds
@@ -188,7 +210,12 @@ class ReviewProcessor:
                 )
                 if run.status == ReviewRunStatus.FAILED.value:
                     UsageService(SQLAlchemyUsageBudgetStore(session)).release(review_run_id)
-            metrics.increment("pr_review_runs_failed_attempts_total")
+                    self.metrics.increment("pr_review_runs_failed_total")
+                else:
+                    self.metrics.increment("pr_review_runs_retried_total")
+            self.metrics.increment("pr_review_runs_failed_attempts_total")
+        finally:
+            self.metrics.observe("pr_review_duration_seconds", monotonic() - processing_started)
         return True
 
     def _load_context(self, review_run_id: int) -> RunContext:
@@ -277,6 +304,9 @@ class ReviewProcessor:
             custom_instructions=context.custom_instructions,
             max_output_tokens_per_call=context.max_output_tokens_per_call,
         )
+        self.metrics.increment("pr_review_model_calls_total", len(prepared.chunks))
+        self.metrics.increment("pr_review_model_input_tokens_total", result.input_tokens)
+        self.metrics.increment("pr_review_model_output_tokens_total", result.output_tokens)
         if (
             github.get_head_sha(context.owner, context.name, context.pull_number)
             != context.head_sha
@@ -294,9 +324,7 @@ class ReviewProcessor:
             model_calls=len(prepared.chunks),
             duration_ms=int((monotonic() - started) * 1000),
         )
-        metrics.increment("pr_review_runs_completed_total")
-        metrics.increment("pr_review_model_input_tokens_total", result.input_tokens)
-        metrics.increment("pr_review_model_output_tokens_total", result.output_tokens)
+        self.metrics.increment("pr_review_runs_completed_total")
         if check_delivery_id is not None:
             self._publish_github_check(
                 check_delivery_id,
@@ -402,7 +430,7 @@ class ReviewProcessor:
             run.locked_at = None
             run.locked_by = None
             run.lease_expires_at = None
-        metrics.increment("pr_review_runs_superseded_total")
+        self.metrics.increment("pr_review_runs_superseded_total")
 
     def _reserve_usage(self, review_run_id: int, tokens: int, *, token_budget: int) -> bool:
         with session_scope(self.session_factory) as session:
@@ -421,11 +449,12 @@ class ReviewProcessor:
             run.locked_at = None
             run.locked_by = None
             run.lease_expires_at = None
-        metrics.increment("pr_review_runs_budget_exceeded_total")
+        self.metrics.increment("pr_review_runs_budget_exceeded_total")
 
     def _send_notification(
         self, notification_id: int, encrypted_webhook: str, review: DiscordReview
     ) -> None:
+        delivery_started = monotonic()
         try:
             webhook_url = self.cipher.decrypt(encrypted_webhook)
             message_ids = self.notifier.send(webhook_url, review)
@@ -436,8 +465,13 @@ class ReviewProcessor:
                     delivery.status = NotificationStatus.FAILED.value
                     delivery.attempts += 1
                     delivery.last_error = type(exc).__name__
-            metrics.increment("pr_review_discord_failures_total")
+            self.metrics.increment("pr_review_discord_failures_total")
             return
+        finally:
+            self.metrics.observe(
+                "pr_review_discord_delivery_latency_seconds",
+                monotonic() - delivery_started,
+            )
         with session_scope(self.session_factory) as session:
             delivery = session.get(NotificationDelivery, notification_id)
             if delivery is not None:
@@ -446,7 +480,7 @@ class ReviewProcessor:
                 delivery.message_ids = message_ids
                 delivery.sent_at = datetime.now(UTC)
                 delivery.review_run.notified_at = delivery.sent_at
-        metrics.increment("pr_review_discord_deliveries_total")
+        self.metrics.increment("pr_review_discord_deliveries_total")
 
     def _publish_github_check(
         self,
@@ -476,7 +510,7 @@ class ReviewProcessor:
                     delivery.status = NotificationStatus.FAILED.value
                     delivery.attempts += 1
                     delivery.last_error = error_type
-            metrics.increment("pr_review_github_check_failures_total")
+            self.metrics.increment("pr_review_github_check_failures_total")
             return
         with session_scope(self.session_factory) as session:
             delivery = session.get(GitHubCheckDelivery, delivery_id)
@@ -487,7 +521,7 @@ class ReviewProcessor:
                 delivery.details_url = published.url
                 delivery.attempts += 1
                 delivery.published_at = datetime.now(UTC)
-        metrics.increment("pr_review_github_checks_published_total")
+        self.metrics.increment("pr_review_github_checks_published_total")
 
 
 def build_processor(settings: Settings) -> tuple[ReviewProcessor, object]:
@@ -527,7 +561,14 @@ def build_processor(settings: Settings) -> tuple[ReviewProcessor, object]:
 
 
 def main() -> None:
-    processor, engine = build_processor(get_settings())
+    settings = get_settings()
+    processor, engine = build_processor(settings)
+    metrics_server = MetricsServer(
+        metrics,
+        settings.worker_metrics_host,
+        settings.worker_metrics_port,
+    )
+    metrics_server.start()
     try:
         while True:
             if not processor.run_once():
@@ -535,6 +576,7 @@ def main() -> None:
     except KeyboardInterrupt:
         logger.info("Worker stopped")
     finally:
+        metrics_server.close()
         engine.dispose()  # type: ignore[attr-defined]
 
 

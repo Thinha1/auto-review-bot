@@ -2,13 +2,14 @@
 
 ## 1. Hiện trạng
 
-Milestone A-C và toàn bộ lát cắt MVP đã được triển khai. Phase 4 (Production) đang thực hiện theo
-các PR độc lập để giữ khả năng rollback và review rõ ràng:
+Milestone A-C, toàn bộ lát cắt MVP và Phase 4 (Production) đã được triển khai theo các PR độc lập
+để giữ khả năng rollback và review rõ ràng:
 
 - PostgreSQL-safe queue claiming: hoàn thành.
 - GitHub Checks với annotations theo file/dòng: hoàn thành.
 - Organization-aware repository RBAC và production authorization: hoàn thành.
 - Usage limits và metrics bền vững: hoàn thành.
+- Operational latency/retry metrics: hoàn thành.
 
 Thứ tự MVP ban đầu đã ưu tiên một lát cắt end-to-end:
 
