@@ -19,6 +19,7 @@ evidence. Run the complete gate in `AGENTS.md` before marking a release.
 | Queue claim, lease, and recovery are deterministic | `tests/integration/test_queue.py` |
 | Queue/review/Discord latency and retry/model usage metrics are emitted | `tests/unit/test_metrics.py`, `tests/integration/test_worker.py::test_worker_completes_review_and_sends_notification` |
 | Responses and compatible Chat Completions providers preserve structured validation | `tests/unit/test_openai_provider.py` |
+| Token reservations include the structured-output schema for every model call | `tests/unit/test_review_usage.py::test_estimate_reserves_prompt_and_output_ceiling_for_each_call` |
 | Schema upgrades preserve existing configuration | `tests/integration/test_migrations.py` |
 | API, worker, migrations, and recovery are documented | `README.md`, `docs/operations.md` |
 
