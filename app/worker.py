@@ -20,7 +20,7 @@ from app.github.client import GitHubClient, PublishedCheck
 from app.github.schemas import PullRequestData
 from app.metrics import Metrics, MetricsServer, metrics
 from app.models.base import ModelOutputError, ModelProvider
-from app.models.openai import OpenAIModelProvider
+from app.models.openai import create_openai_provider
 from app.notifications.discord import DiscordNotifier, DiscordReview
 from app.review.diff import parse_file_patch
 from app.review.engine import ReviewEngine, finding_fingerprint
@@ -548,7 +548,13 @@ def build_processor(settings: Settings) -> tuple[ReviewProcessor, object]:
     processor = ReviewProcessor(
         factory,
         github_factory,
-        OpenAIModelProvider(settings.openai_api_key or "", base_url=settings.openai_base_url),
+        create_openai_provider(
+            settings.openai_api_key or "",
+            base_url=settings.openai_base_url,
+            api_style=settings.openai_api_style,
+            chat_response_format=settings.openai_chat_response_format,
+            chat_token_limit_field=settings.openai_chat_token_limit_field,
+        ),
         DiscordNotifier(),
         SecretCipher(settings.master_key),
         worker_id=f"{socket.gethostname()}-{__import__('os').getpid()}",

@@ -10,6 +10,7 @@ Milestone A-C, toàn bộ lát cắt MVP và Phase 4 (Production) đã được 
 - Organization-aware repository RBAC và production authorization: hoàn thành.
 - Usage limits và metrics bền vững: hoàn thành.
 - Operational latency/retry metrics: hoàn thành.
+- OpenAI-compatible Chat Completions adapter: hoàn thành.
 
 Thứ tự MVP ban đầu đã ưu tiên một lát cắt end-to-end:
 
