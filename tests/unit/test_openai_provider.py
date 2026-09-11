@@ -27,6 +27,7 @@ def test_openai_provider_uses_strict_json_schema() -> None:
     result = provider.review(ModelRequest("system", "user", "gpt-test"))
     assert result.output.summary == "OK"
     assert result.input_tokens == 10
+    assert captured["max_output_tokens"] == 4000
     assert captured["text"]["format"]["strict"] is True  # type: ignore[index]
 
 

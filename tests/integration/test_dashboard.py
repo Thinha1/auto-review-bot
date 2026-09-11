@@ -133,6 +133,8 @@ def test_settings_update_encrypts_write_only_webhook(tmp_path: Path) -> None:
                 "max_diff_lines": "1000",
                 "max_findings": "10",
                 "max_input_tokens": "20000",
+                "max_output_tokens_per_call": "2500",
+                "monthly_token_budget": "500000",
                 "discord_webhook": webhook,
                 "ignored_paths": "docs/*\n*.snap",
             },
@@ -145,6 +147,8 @@ def test_settings_update_encrypts_write_only_webhook(tmp_path: Path) -> None:
             assert "super-secret-token" not in config.discord_webhook_encrypted
             assert config.minimum_severity == "high"
             assert config.ignored_paths == ["docs/*", "*.snap"]
+            assert config.max_output_tokens_per_call == 2500
+            assert config.monthly_token_budget == 500_000
         page = client.get(f"/dashboard/repositories/{repository_id}")
         assert webhook not in page.text
         assert "configured" in page.text

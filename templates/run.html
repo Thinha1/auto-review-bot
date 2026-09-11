@@ -14,6 +14,7 @@
     <div><span class="label">Risk</span><strong>{{ run.risk or '—' }}</strong></div>
     <div><span class="label">Model</span><strong>{{ run.model or '—' }}</strong></div>
     <div><span class="label">Tokens</span><strong>{{ (run.input_tokens or 0) + (run.output_tokens or 0) }}</strong></div>
+    <div><span class="label">Model calls</span><strong>{{ run.model_calls or 0 }}</strong></div>
     <div><span class="label">Duration</span><strong>{{ run.duration_ms or 0 }} ms</strong></div>
   </section>
   <section class="card">

@@ -12,6 +12,7 @@ from typing import Protocol
 import httpx
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.application.usage import UsageService
 from app.config import Settings, get_settings
 from app.domain.states import NotificationStatus, ReviewRunStatus
 from app.github.auth import GitHubAppAuth
@@ -26,10 +27,12 @@ from app.review.engine import ReviewEngine, finding_fingerprint
 from app.review.filters import prepare_diff
 from app.review.prompts import PROMPT_VERSION
 from app.review.schemas import ReviewResult, Severity
+from app.review.usage import estimate_token_reservation
 from app.security import SecretCipher
 from app.storage.database import create_engine, make_session_factory, session_scope
 from app.storage.models import Finding, GitHubCheckDelivery, NotificationDelivery, ReviewRun
 from app.storage.queue import ReviewQueue
+from app.storage.usage import SQLAlchemyUsageBudgetStore
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +127,8 @@ class RunContext:
     max_findings: int
     max_input_tokens: int
     max_model_calls: int
+    max_output_tokens_per_call: int
+    monthly_token_budget: int
     discord_webhook_encrypted: str | None
 
 
@@ -175,12 +180,14 @@ class ReviewProcessor:
                 extra={"review_run_id": review_run_id, "error_type": failure_code},
             )
             with session_scope(self.session_factory) as session:
-                ReviewQueue(session).retry_or_fail(
+                run = ReviewQueue(session).retry_or_fail(
                     review_run_id,
                     self.worker_id,
                     failure_code=failure_code,
                     max_attempts=self.max_attempts if is_transient_failure(exc) else 1,
                 )
+                if run.status == ReviewRunStatus.FAILED.value:
+                    UsageService(SQLAlchemyUsageBudgetStore(session)).release(review_run_id)
             metrics.increment("pr_review_runs_failed_attempts_total")
         return True
 
@@ -215,6 +222,12 @@ class ReviewProcessor:
                 max_findings=int(snapshot.get("max_findings", config.max_findings)),
                 max_input_tokens=int(snapshot.get("max_input_tokens", config.max_input_tokens)),
                 max_model_calls=int(snapshot.get("max_model_calls", config.max_model_calls)),
+                max_output_tokens_per_call=int(
+                    snapshot.get("max_output_tokens_per_call", config.max_output_tokens_per_call)
+                ),
+                monthly_token_budget=int(
+                    snapshot.get("monthly_token_budget", config.monthly_token_budget)
+                ),
                 discord_webhook_encrypted=config.discord_webhook_encrypted,
             )
 
@@ -243,22 +256,43 @@ class ReviewProcessor:
         if pull.files_truncated:
             prepared.is_partial = True
 
+        reservation_tokens = estimate_token_reservation(
+            prepared,
+            custom_instructions=context.custom_instructions,
+            max_output_tokens_per_call=context.max_output_tokens_per_call,
+        )
+        if not self._reserve_usage(
+            review_run_id,
+            reservation_tokens,
+            token_budget=context.monthly_token_budget,
+        ):
+            self._mark_budget_exceeded(review_run_id)
+            return
+
         result = self.engine.review(
             prepared,
             model=context.model,
             max_findings=context.max_findings,
             minimum_severity=Severity(context.minimum_severity),
             custom_instructions=context.custom_instructions,
+            max_output_tokens_per_call=context.max_output_tokens_per_call,
         )
         if (
             github.get_head_sha(context.owner, context.name, context.pull_number)
             != context.head_sha
         ):
-            self._mark_superseded(review_run_id)
+            self._mark_superseded(
+                review_run_id,
+                result=result,
+                model_calls=len(prepared.chunks),
+            )
             return
 
         notification_id, check_delivery_id = self._save_result(
-            review_run_id, result, duration_ms=int((monotonic() - started) * 1000)
+            review_run_id,
+            result,
+            model_calls=len(prepared.chunks),
+            duration_ms=int((monotonic() - started) * 1000),
         )
         metrics.increment("pr_review_runs_completed_total")
         metrics.increment("pr_review_model_input_tokens_total", result.input_tokens)
@@ -286,14 +320,26 @@ class ReviewProcessor:
             )
 
     def _save_result(
-        self, review_run_id: int, result: ReviewResult, *, duration_ms: int
+        self,
+        review_run_id: int,
+        result: ReviewResult,
+        *,
+        model_calls: int,
+        duration_ms: int,
     ) -> tuple[int | None, int | None]:
         with session_scope(self.session_factory) as session:
             run = ReviewQueue(session)._locked_run(review_run_id, self.worker_id)
+            UsageService(SQLAlchemyUsageBudgetStore(session)).settle(
+                review_run_id,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                model_calls=model_calls,
+            )
             run.summary = result.summary
             run.risk = result.risk.value
             run.input_tokens = result.input_tokens
             run.output_tokens = result.output_tokens
+            run.model_calls = model_calls
             run.is_partial = result.is_partial
             run.skipped_files = result.skipped_files
             run.skipped_lines = result.skipped_lines
@@ -331,9 +377,25 @@ class ReviewProcessor:
                 check_delivery.id if check_delivery is not None else None,
             )
 
-    def _mark_superseded(self, review_run_id: int) -> None:
+    def _mark_superseded(
+        self,
+        review_run_id: int,
+        *,
+        result: ReviewResult | None = None,
+        model_calls: int = 0,
+    ) -> None:
         with session_scope(self.session_factory) as session:
             run = ReviewQueue(session)._locked_run(review_run_id, self.worker_id)
+            if result is not None:
+                UsageService(SQLAlchemyUsageBudgetStore(session)).settle(
+                    review_run_id,
+                    input_tokens=result.input_tokens,
+                    output_tokens=result.output_tokens,
+                    model_calls=model_calls,
+                )
+                run.input_tokens = result.input_tokens
+                run.output_tokens = result.output_tokens
+                run.model_calls = model_calls
             run.status = ReviewRunStatus.SUPERSEDED.value
             run.completed_at = datetime.now(UTC)
             run.failure_code = "head_sha_changed"
@@ -341,6 +403,25 @@ class ReviewProcessor:
             run.locked_by = None
             run.lease_expires_at = None
         metrics.increment("pr_review_runs_superseded_total")
+
+    def _reserve_usage(self, review_run_id: int, tokens: int, *, token_budget: int) -> bool:
+        with session_scope(self.session_factory) as session:
+            return UsageService(SQLAlchemyUsageBudgetStore(session)).reserve(
+                review_run_id,
+                tokens,
+                token_budget=token_budget,
+            )
+
+    def _mark_budget_exceeded(self, review_run_id: int) -> None:
+        with session_scope(self.session_factory) as session:
+            run = ReviewQueue(session)._locked_run(review_run_id, self.worker_id)
+            run.status = ReviewRunStatus.SKIPPED.value
+            run.completed_at = datetime.now(UTC)
+            run.failure_code = "monthly_token_budget_exceeded"
+            run.locked_at = None
+            run.locked_by = None
+            run.lease_expires_at = None
+        metrics.increment("pr_review_runs_budget_exceeded_total")
 
     def _send_notification(
         self, notification_id: int, encrypted_webhook: str, review: DiscordReview

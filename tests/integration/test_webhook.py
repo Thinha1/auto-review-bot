@@ -60,6 +60,11 @@ def test_webhook_enqueues_once_and_returns_202(tmp_path: Path) -> None:
         with session_scope(app.state.session_factory) as session:
             assert session.scalar(select(func.count()).select_from(WebhookDelivery)) == 1
             assert session.scalar(select(func.count()).select_from(ReviewRun)) == 1
+            run = session.scalar(select(ReviewRun))
+            assert run is not None
+            assert run.config_snapshot is not None
+            assert run.config_snapshot["max_output_tokens_per_call"] == 4000
+            assert run.config_snapshot["monthly_token_budget"] == 1_000_000
 
 
 def test_webhook_rejects_bad_signature(tmp_path: Path) -> None:

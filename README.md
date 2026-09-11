@@ -115,11 +115,27 @@ Migrations read `DATABASE_URL` (defaults to `sqlite:///./auto_review.db`).
 Production deployments can use `postgresql+psycopg://...`; PostgreSQL workers claim jobs with
 `FOR UPDATE SKIP LOCKED` so replicas do not block one another.
 
+## Usage budgets
+
+Each repository has a UTC calendar-month token budget, configured from its dashboard settings.
+Before any model call, the worker atomically reserves a deterministic estimate made from the
+rendered prompts plus `max_output_tokens_per_call` for every chunk. Competing workers therefore
+cannot reserve the same remaining capacity. Once a review finishes, the reservation is replaced
+with the provider's actual input/output usage and model-call count; actual usage may be higher
+than the estimate, in which case remaining capacity is reported as zero.
+
+Runs that cannot reserve their full estimate are marked `skipped` with
+`monthly_token_budget_exceeded` before contacting the model. The dashboard shows durable used,
+reserved, remaining-token, and model-call counters from the database; these survive process
+restarts, unlike the process-local `/metrics` counters.
+
 ## Operations
 
 - `/healthz` reports API process health.
 - `/readyz` verifies the database is reachable.
 - `/metrics` exposes process-local Prometheus text metrics.
+- Monthly repository usage and outstanding reservations are persisted in the database and shown
+  in the dashboard.
 - GitHub Check publication is recorded separately from the review run. A Checks API failure
   does not discard the review result or prevent its Discord delivery.
 - SQLite uses WAL and a five-second busy timeout. Keep the database on a local persistent

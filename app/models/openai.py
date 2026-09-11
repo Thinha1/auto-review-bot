@@ -29,6 +29,7 @@ class OpenAIModelProvider:
             headers={"Authorization": f"Bearer {self._api_key}"},
             json={
                 "model": request.model,
+                "max_output_tokens": request.max_output_tokens,
                 "instructions": request.system_prompt,
                 "input": request.user_prompt,
                 "text": {
