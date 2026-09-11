@@ -133,7 +133,9 @@ restarts, unlike the process-local `/metrics` counters.
 
 - `/healthz` reports API process health.
 - `/readyz` verifies the database is reachable.
-- `/metrics` exposes process-local Prometheus text metrics.
+- The API exposes its process-local counters at `/metrics`. The worker exposes queue/review/Discord
+  latency summaries plus model usage and retry/failure counters at
+  `http://WORKER_METRICS_HOST:WORKER_METRICS_PORT/metrics` (default `127.0.0.1:9100`).
 - Monthly repository usage and outstanding reservations are persisted in the database and shown
   in the dashboard.
 - GitHub Check publication is recorded separately from the review run. A Checks API failure

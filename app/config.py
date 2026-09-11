@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     worker_poll_seconds: float = 2.0
     worker_lease_seconds: int = 300
     worker_max_attempts: int = 3
+    worker_metrics_host: str = "127.0.0.1"
+    worker_metrics_port: int = 9100
 
 
 @lru_cache

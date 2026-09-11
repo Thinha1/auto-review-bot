@@ -13,6 +13,8 @@ def test_settings_from_explicit_values():
     assert s.app_debug is False
     assert s.github_checks_enabled is False
     assert s.database_url.startswith("sqlite")
+    assert s.worker_metrics_host == "127.0.0.1"
+    assert s.worker_metrics_port == 9100
 
 
 def test_settings_reads_env(monkeypatch):
