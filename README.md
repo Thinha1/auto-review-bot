@@ -29,6 +29,23 @@ Then fill in the required secrets in `.env` (never commit `.env`):
 For the complete GitHub-to-Discord flow, also configure the GitHub App, GitHub OAuth,
 and OpenAI variables documented in `.env.example`.
 
+### OpenAI-compatible providers
+
+The default adapter uses `POST {OPENAI_BASE_URL}/responses`. For a provider that implements Chat
+Completions instead, configure:
+
+```env
+OPENAI_BASE_URL=https://provider.example/v1
+OPENAI_API_STYLE=chat_completions
+OPENAI_CHAT_RESPONSE_FORMAT=json_schema
+OPENAI_CHAT_TOKEN_LIMIT_FIELD=max_completion_tokens
+```
+
+If the compatible provider lacks strict JSON Schema support, try `json_object`, then `prompt`.
+Providers using the legacy token-limit field can set `OPENAI_CHAT_TOKEN_LIMIT_FIELD=max_tokens`.
+All modes still validate the returned JSON against the same local Pydantic schema; changing the
+base URL alone does not make a non-compatible API usable.
+
 ## GitHub configuration
 
 Create a GitHub App with these repository permissions:
@@ -89,6 +106,9 @@ Use a real model:
 ```bash
 uv run python -m app.cli tests/fixtures/sample.diff --model gpt-5-mini
 ```
+
+The CLI also accepts `--base-url`, `--api-style`, `--chat-response-format`, and
+`--chat-token-limit-field`, with defaults from the corresponding environment variables.
 
 For an offline deterministic run, supply a file containing a valid model-output JSON:
 

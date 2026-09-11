@@ -16,6 +16,7 @@ evidence. Run the complete gate in `AGENTS.md` before marking a release.
 | Secrets are encrypted, write-only, and outbound URLs are allowlisted | `tests/unit/test_security.py`, `tests/integration/test_dashboard.py` |
 | Queue claim, lease, and recovery are deterministic | `tests/integration/test_queue.py` |
 | Queue/review/Discord latency and retry/model usage metrics are emitted | `tests/unit/test_metrics.py`, `tests/integration/test_worker.py::test_worker_completes_review_and_sends_notification` |
+| Responses and compatible Chat Completions providers preserve structured validation | `tests/unit/test_openai_provider.py` |
 | Schema upgrades preserve existing configuration | `tests/integration/test_migrations.py` |
 | API, worker, migrations, and recovery are documented | `README.md`, `docs/operations.md` |
 

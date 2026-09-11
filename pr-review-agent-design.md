@@ -270,7 +270,8 @@ Agent không nên gửi:
 - Database: SQLite.
 - Worker: process Python riêng với queue lưu trong database.
 - GitHub client: HTTP client hoặc GitHub SDK mỏng.
-- Model provider: adapter interface để có thể đổi nhà cung cấp.
+- Model provider: adapter interface để có thể đổi nhà cung cấp; adapter tích hợp hỗ trợ OpenAI
+  Responses và OpenAI-compatible Chat Completions với local schema validation chung.
 - Discord: outgoing webhook.
 
 ### Khi cần scale

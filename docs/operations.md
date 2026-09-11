@@ -109,7 +109,10 @@ when investigating cost discrepancies. Never edit `reserved_tokens` directly whi
   updated permission, and `GITHUB_CHECKS_ENABLED=true`. Delivery failures retain only a stable
   exception class in `github_check_deliveries`; the completed review and Discord delivery remain
   available.
-- `OpenAI` failures: verify model access, API key, configured limits, and provider status.
+- `OpenAI` failures: verify model access, API key, configured limits, and provider status. For a
+  compatible provider, also verify whether it exposes `/responses` or `/chat/completions`, which
+  structured-output mode it supports, and whether its token limit field is
+  `max_completion_tokens` or `max_tokens`.
 - `Discord` failures: `401/403/404` normally mean the write-only webhook must be replaced;
   `429/5xx` are retried automatically.
 - Partial reviews: inspect skipped file/line counts and increase repository limits only after

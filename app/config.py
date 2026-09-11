@@ -1,6 +1,7 @@
 """Application settings loaded from the environment and `.env`."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -31,6 +32,11 @@ class Settings(BaseSettings):
     github_app_slug: str | None = None
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com/v1"
+    openai_api_style: Literal["responses", "chat_completions"] = "responses"
+    openai_chat_response_format: Literal["json_schema", "json_object", "prompt"] = "json_schema"
+    openai_chat_token_limit_field: Literal["max_completion_tokens", "max_tokens"] = (
+        "max_completion_tokens"
+    )
     github_api_url: str = "https://api.github.com"
     github_checks_enabled: bool = False
     session_secret: str | None = None
