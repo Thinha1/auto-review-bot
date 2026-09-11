@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -9,7 +10,14 @@ from sqlalchemy import func, select
 from app.config import Settings
 from app.main import create_app
 from app.storage.database import session_scope
-from app.storage.models import Base, ReviewRun, WebhookDelivery
+from app.storage.models import (
+    Base,
+    GitHubInstallation,
+    Repository,
+    ReviewConfig,
+    ReviewRun,
+    WebhookDelivery,
+)
 
 
 def payload() -> dict[str, object]:
@@ -85,3 +93,47 @@ def test_webhook_rejects_bad_signature(tmp_path: Path) -> None:
             },
         )
     assert response.status_code == 403
+
+
+def test_webhook_skips_suspended_installation_without_queueing_work(tmp_path: Path) -> None:
+    secret = "webhook-secret"
+    settings = Settings(
+        github_webhook_secret=secret,
+        master_key="m" * 32,
+        database_url=f"sqlite:///{tmp_path / 'suspended.db'}",
+    )
+    app = create_app(settings)
+    with TestClient(app) as client:
+        Base.metadata.create_all(app.state.engine)
+        with session_scope(app.state.session_factory) as session:
+            installation = GitHubInstallation(
+                github_installation_id=1001,
+                suspended_at=datetime(2026, 9, 11, tzinfo=UTC),
+            )
+            repository = Repository(
+                github_repository_id=2002,
+                installation=installation,
+                owner="octo",
+                name="repo",
+            )
+            ReviewConfig(repository=repository)
+            session.add(repository)
+        body = json.dumps(payload()).encode()
+        response = client.post(
+            "/api/webhooks/github",
+            content=body,
+            headers={
+                "Content-Type": "application/json",
+                "X-GitHub-Delivery": "delivery-suspended",
+                "X-GitHub-Event": "pull_request",
+                "X-Hub-Signature-256": signature(body, secret),
+            },
+        )
+
+        assert response.status_code == 202
+        assert response.json()["reason"] == "installation_suspended"
+        with session_scope(app.state.session_factory) as session:
+            run = session.scalar(select(ReviewRun))
+            assert run is not None
+            assert run.status == "skipped"
+            assert run.failure_code == "installation_suspended"

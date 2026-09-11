@@ -53,6 +53,12 @@ actually stopped so two workers cannot deliver the same result.
 Use the dashboard Retry action for a run that exhausted its automatic attempts. The action
 requeues the same logical run and preserves its idempotency key.
 
+Disabling a repository, removing it from an installation, or suspending/deleting the GitHub App
+installation also protects already-queued work. The worker checks current eligibility before any
+GitHub/model call and again after model completion before GitHub Checks or Discord delivery. A
+run stopped this way is `skipped` with `repository_disabled` or `installation_suspended`; model
+usage already incurred before the second check is still settled.
+
 ## Rotating the master key
 
 `review_configs.key_version` records which master-key version encrypted each Discord webhook.

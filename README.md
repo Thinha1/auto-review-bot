@@ -164,6 +164,8 @@ restarts, unlike the process-local `/metrics` counters.
   volume, not a network filesystem.
 - Review jobs use renewable leases. A crashed worker's job becomes eligible after the lease
   expires; model and notification errors never persist raw exception text.
+- Workers skip queued repositories whose configuration was disabled or whose GitHub App
+  installation was suspended, and re-check eligibility before publishing model results.
 - See [operations.md](./docs/operations.md) for migrations, key rotation, and stuck-job
   recovery.
 - See [mvp-acceptance.md](./docs/mvp-acceptance.md) for automated evidence and pre-release
